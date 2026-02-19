@@ -1,0 +1,99 @@
+{% extends 'base.html' %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-start mb-3">
+    <div>
+        <h1 class="h3 mb-1">{{ project.title }}</h1>
+        <p class="text-muted mb-0">{{ project.description|default:'-' }}</p>
+        {% if template_size_mm %}
+        <p class="text-muted mb-0 small">既定テンプレートサイズ: 横{{ template_size_mm.0 }}mm / 縦{{ template_size_mm.1 }}mm</p>
+        {% endif %}
+    </div>
+    <div class="d-flex gap-2">
+        <a class="btn btn-outline-secondary" href="{% url 'project_list' %}">一覧へ戻る</a>
+        <form method="post" action="{% url 'project_copy' project.pk %}">
+            {% csrf_token %}
+            <button type="submit" class="btn btn-outline-dark">コピー</button>
+        </form>
+        <a class="btn btn-outline-primary" href="{% url 'project_update' project.pk %}">編集</a>
+        <a class="btn btn-outline-danger" href="{% url 'project_delete' project.pk %}">削除</a>
+    </div>
+</div>
+
+<div class="card mb-3">
+    <div class="card-body">
+        <h2 class="h6 mb-2">テンプレート一覧</h2>
+        <ul class="mb-0">
+            {% for template in templates %}
+            <li>
+                {{ template.name }}
+                {% if template.is_default %}
+                <span class="badge bg-secondary">既定</span>
+                {% endif %}
+            </li>
+            {% empty %}
+            <li class="text-muted">テンプレートがありません</li>
+            {% endfor %}
+        </ul>
+    </div>
+</div>
+
+<div class="d-flex flex-wrap gap-2 mb-3">
+    <a class="btn btn-primary" href="{% url 'page_create' project.pk %}">ページ追加</a>
+    <a class="btn btn-success" href="{% url 'project_pdf_merged' project.pk %}" target="_blank" rel="noopener noreferrer">全ページ結合PDF（軽量）</a>
+    {% if all_pages_finalized %}
+    <a class="btn btn-secondary" href="{% url 'project_pdf_zip' project.pk %}">全ページZIP（印刷用300dpi）</a>
+    <a class="btn btn-outline-secondary" href="{% url 'project_pages_csv' project.pk %}">校了データCSV</a>
+    {% else %}
+    <a class="btn btn-secondary disabled" href="#" aria-disabled="true" tabindex="-1">全ページZIP（全ページ校了で有効）</a>
+    <a class="btn btn-outline-secondary disabled" href="#" aria-disabled="true" tabindex="-1">校了データCSV（全ページ校了で有効）</a>
+    {% endif %}
+    <a class="btn btn-outline-dark" href="{% url 'project_csv_format' project.pk %}">プロジェクトCSVフォーマット</a>
+</div>
+
+<div class="card mb-3">
+    <div class="card-body">
+        <h2 class="h6 mb-2">CSVアップロード</h2>
+        <p class="small text-muted mb-2">CSVのみアップロードできます。画像ファイルはアップロードできません。</p>
+        <form method="post" action="{% url 'project_csv_upload' project.pk %}" enctype="multipart/form-data" class="d-flex flex-wrap gap-2 align-items-center">
+            {% csrf_token %}
+            <input type="file" name="csv_file" accept=".csv,text/csv" class="form-control" style="max-width: 420px;" required>
+            <button type="submit" class="btn btn-outline-primary">CSV取込</button>
+        </form>
+    </div>
+</div>
+
+<div id="page-list-wrapper">
+    {% include 'partials/page_list.html' with pages=pages %}
+</div>
+
+<script>
+function getCookie(name) {
+    const value = `; ${document.cookie}`;
+    const parts = value.split(`; ${name}=`);
+    if (parts.length === 2) return parts.pop().split(';').shift();
+}
+
+function initSortable() {
+    const container = document.getElementById('sortable-pages');
+    if (!container) return;
+    Sortable.create(container, {
+        animation: 150,
+        handle: '.drag-handle',
+        onEnd: function () {
+            const order = Array.from(container.querySelectorAll('[data-page-id]')).map(el => el.dataset.pageId);
+            htmx.ajax('POST', "{% url 'page_reorder' project.pk %}", {
+                source: container,
+                target: '#page-list-wrapper',
+                swap: 'innerHTML',
+                headers: {
+                    'X-CSRFToken': getCookie('csrftoken')
+                },
+                values: {order: order.join(',')}
+            }).then(() => initSortable());
+        }
+    });
+}
+
+initSortable();
+</script>
+{% endblock %}

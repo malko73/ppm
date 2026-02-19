@@ -1,0 +1,90 @@
+{% extends 'base.html' %}
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-lg-9">
+        <div class="card shadow-sm">
+            <div class="card-body">
+                <h1 class="h4 mb-3">ページ編集</h1>
+                <form method="post" enctype="multipart/form-data">
+                    {% csrf_token %}
+                    {% if form.errors %}
+                    <div class="alert alert-warning">
+                        <div class="fw-semibold mb-1">入力内容を確認してください。</div>
+                        <ul class="mb-0">
+                            {% for field in form %}
+                                {% for error in field.errors %}
+                                <li>{{ field.label }}: {{ error }}</li>
+                                {% endfor %}
+                            {% endfor %}
+                        </ul>
+                    </div>
+                    {% endif %}
+                    <div class="mb-3">
+                        {{ form.page_name.label_tag }}
+                        {{ form.page_name }}
+                    </div>
+                    <div class="mb-3">
+                        {{ form.project_template.label_tag }}
+                        <div class="d-flex gap-2 align-items-start">
+                            <div class="flex-grow-1">
+                                {{ form.project_template }}
+                            </div>
+                            {% if view.object %}
+                            <button type="submit" name="apply_template" value="1" class="btn btn-outline-primary">テンプレート変更を適用</button>
+                            {% endif %}
+                        </div>
+                        {% if view.object %}
+                        <div class="small text-muted mt-1">テンプレート変更だけ先に反映したい場合に使います。</div>
+                        {% endif %}
+                    </div>
+
+                    <h2 class="h6 mt-4 mb-2">テキスト入力</h2>
+                    <div class="row g-2">
+                        {% for text_field in form.text_fields_for_template %}
+                        <div class="col-md-6">
+                            {{ text_field.label_tag }}
+                            {{ text_field }}
+                        </div>
+                        {% endfor %}
+                    </div>
+
+                    <h2 class="h6 mt-4 mb-2">画像入力</h2>
+                    <div class="row g-3">
+                        {% for image_item in form.image_fields_for_template %}
+                        <div class="col-md-6">
+                            <div class="border rounded p-2">
+                                {{ image_item.image_field.label_tag }}
+                                {{ image_item.image_field }}
+                                {% if image_item.image_field.help_text %}
+                                <div class="small text-muted mt-1">{{ image_item.image_field.help_text }}</div>
+                                {% endif %}
+                                <div class="form-check mt-2">
+                                    {{ image_item.clear_field }}
+                                    <label class="form-check-label" for="{{ image_item.clear_field.id_for_label }}">削除</label>
+                                </div>
+                            </div>
+                        </div>
+                        {% endfor %}
+                    </div>
+
+                    <div class="d-flex gap-2 mt-3">
+                        <button type="submit" class="btn btn-primary">保存</button>
+                        <a class="btn btn-outline-secondary" href="{% url 'project_detail' view.project.pk %}">戻る</a>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+<script>
+(function () {
+    const templateSelect = document.getElementById('id_project_template');
+    if (!templateSelect) return;
+    templateSelect.addEventListener('change', () => {
+        const url = new URL(window.location.href);
+        url.searchParams.set('template_id', templateSelect.value);
+        window.location.href = url.toString();
+    });
+})();
+</script>
+{% endblock %}

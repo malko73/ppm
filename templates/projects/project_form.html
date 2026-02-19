@@ -1,0 +1,301 @@
+{% extends 'base.html' %}
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-xl-10">
+        <div class="card shadow-sm">
+            <div class="card-body">
+                <h1 class="h4 mb-3">プロジェクト</h1>
+                <form method="post" enctype="multipart/form-data" id="project-form">
+                    {% csrf_token %}
+                    {{ form.text_layout_json }}
+                    {{ form.image_layout_json }}
+                    {% if form.non_field_errors %}
+                    <div class="alert alert-danger">
+                        {% for error in form.non_field_errors %}
+                        <div>{{ error }}</div>
+                        {% endfor %}
+                    </div>
+                    {% endif %}
+                    {% if form.errors %}
+                    <div class="alert alert-warning">
+                        <div class="fw-semibold mb-1">入力内容を確認してください。</div>
+                        <ul class="mb-0">
+                            {% for field in form %}
+                                {% for error in field.errors %}
+                                <li>{{ field.label }}: {{ error }}</li>
+                                {% endfor %}
+                            {% endfor %}
+                        </ul>
+                    </div>
+                    {% endif %}
+                    <div class="row g-3 mb-4">
+                        <div class="col-md-6">
+                            {{ form.title.label_tag }}
+                            {{ form.title }}
+                        </div>
+                        <div class="col-md-6">
+                            {{ form.template_files.label_tag }}
+                            {{ form.template_files }}
+                            {% if form.template_files.help_text %}
+                            <div class="form-text">{{ form.template_files.help_text }}</div>
+                            {% endif %}
+                        </div>
+                        <div class="col-md-6">
+                            {{ form.layout_target.label_tag }}
+                            {{ form.layout_target }}
+                            <div class="form-text">ここで選んだテンプレートのレイアウト（テキスト/画像配置）を編集します。</div>
+                        </div>
+                        <div class="col-12">
+                            {{ form.description.label_tag }}
+                            {{ form.description }}
+                        </div>
+                        {% if form.participants %}
+                        <div class="col-12">
+                            {{ form.participants.label_tag }}
+                            {{ form.participants }}
+                            {% if form.participants.help_text %}
+                            <div class="form-text">{{ form.participants.help_text }}</div>
+                            {% endif %}
+                        </div>
+                        {% endif %}
+                    </div>
+                    {% if form.existing_templates %}
+                    <div class="mb-4">
+                        <h2 class="h6">登録済みテンプレート</h2>
+                        <ul class="mb-0">
+                            {% for template in form.existing_templates %}
+                            <li>
+                                {{ template.name }}
+                                {% if template.is_default %}
+                                <span class="badge bg-secondary">既定</span>
+                                {% endif %}
+                            </li>
+                            {% endfor %}
+                        </ul>
+                    </div>
+                    {% endif %}
+
+                    <div class="d-flex justify-content-between align-items-center mt-4">
+                        <h2 class="h5 mb-0">テキスト配置</h2>
+                        <button type="button" class="btn btn-sm btn-outline-primary" id="add-text-row">テキスト項目追加</button>
+                    </div>
+                    <p class="text-muted small mb-3">項目は自由に追加・削除できます。キーは半角英数字とアンダースコア（先頭英字）で入力してください。</p>
+                    <div class="table-responsive mb-4">
+                        <table class="table table-sm align-middle" id="text-table">
+                            <thead>
+                                <tr>
+                                    <th>キー</th>
+                                    <th>項目名</th>
+                                    <th>X (mm)</th>
+                                    <th>Y (mm)</th>
+                                    <th>幅 (mm)</th>
+                                    <th>高さ (mm)</th>
+                                    <th>文字サイズ (pt)</th>
+                                    <th>文字方向</th>
+                                    <th></th>
+                                </tr>
+                            </thead>
+                            <tbody></tbody>
+                        </table>
+                    </div>
+
+                    <div class="d-flex justify-content-between align-items-center mt-4">
+                        <h2 class="h5 mb-0">画像配置</h2>
+                        <button type="button" class="btn btn-sm btn-outline-primary" id="add-image-row">画像項目追加</button>
+                    </div>
+                    <div class="table-responsive mb-4">
+                        <table class="table table-sm align-middle" id="image-table">
+                            <thead>
+                                <tr>
+                                    <th>キー</th>
+                                    <th>項目名</th>
+                                    <th>X (mm)</th>
+                                    <th>Y (mm)</th>
+                                    <th>幅 (mm)</th>
+                                    <th>高さ (mm)</th>
+                                    <th></th>
+                                </tr>
+                            </thead>
+                            <tbody></tbody>
+                        </table>
+                    </div>
+                    <div class="d-flex gap-2">
+                        <button class="btn btn-primary" type="submit">保存</button>
+                        <a class="btn btn-outline-secondary" href="{% url 'project_list' %}">戻る</a>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+(function () {
+    const layoutTarget = document.getElementById('id_layout_target');
+    const textTableBody = document.querySelector('#text-table tbody');
+    const imageTableBody = document.querySelector('#image-table tbody');
+    const textJsonField = document.getElementById('id_text_layout_json');
+    const imageJsonField = document.getElementById('id_image_layout_json');
+
+    function safeParse(value, fallback) {
+        try {
+            const parsed = JSON.parse(value || '');
+            return Array.isArray(parsed) ? parsed : fallback;
+        } catch (_) {
+            return fallback;
+        }
+    }
+
+    let textRows = safeParse(textJsonField.value, []);
+    let imageRows = safeParse(imageJsonField.value, []);
+
+    function esc(value) {
+        return String(value ?? '')
+            .replaceAll('&', '&amp;')
+            .replaceAll('<', '&lt;')
+            .replaceAll('>', '&gt;')
+            .replaceAll('"', '&quot;')
+            .replaceAll("'", '&#39;');
+    }
+
+    function numberInput(value, step) {
+        return `<input type="number" class="form-control form-control-sm" step="${step}" value="${esc(value)}">`;
+    }
+
+    function textModeSelect(value) {
+        const horizontalSelected = value === 'horizontal' ? 'selected' : '';
+        const verticalSelected = value === 'vertical' ? 'selected' : '';
+        return `
+            <select class="form-select form-select-sm">
+                <option value="horizontal" ${horizontalSelected}>横書き</option>
+                <option value="vertical" ${verticalSelected}>縦書き</option>
+            </select>
+        `;
+    }
+
+    function renderTextTable() {
+        textTableBody.innerHTML = '';
+        textRows.forEach((row, index) => {
+            const tr = document.createElement('tr');
+            tr.innerHTML = `
+                <td><input type="text" class="form-control form-control-sm" value="${esc(row.key || '')}" placeholder="title"></td>
+                <td><input type="text" class="form-control form-control-sm" value="${esc(row.label || '')}" placeholder="タイトル"></td>
+                <td>${numberInput(row.x ?? 0, '0.1')}</td>
+                <td>${numberInput(row.y ?? 0, '0.1')}</td>
+                <td>${numberInput(row.w ?? 120, '0.1')}</td>
+                <td>${numberInput(row.h ?? 80, '0.1')}</td>
+                <td>${numberInput(row.font_size ?? 12, '1')}</td>
+                <td>${textModeSelect(row.writing_mode || 'horizontal')}</td>
+                <td><button type="button" class="btn btn-sm btn-outline-danger">削除</button></td>
+            `;
+
+            tr.querySelector('button').addEventListener('click', () => {
+                textRows.splice(index, 1);
+                renderTextTable();
+            });
+
+            const inputs = tr.querySelectorAll('input, select');
+            inputs.forEach((input, inputIndex) => {
+                input.addEventListener('input', () => {
+                    const values = tr.querySelectorAll('input, select');
+                    textRows[index] = {
+                        key: values[0].value.trim(),
+                        label: values[1].value.trim(),
+                        x: values[2].value,
+                        y: values[3].value,
+                        w: values[4].value,
+                        h: values[5].value,
+                        font_size: values[6].value,
+                        writing_mode: values[7].value,
+                    };
+                });
+                if (inputIndex === 7) {
+                    input.addEventListener('change', () => input.dispatchEvent(new Event('input')));
+                }
+            });
+
+            textTableBody.appendChild(tr);
+        });
+    }
+
+    function renderImageTable() {
+        imageTableBody.innerHTML = '';
+        imageRows.forEach((row, index) => {
+            const tr = document.createElement('tr');
+            tr.innerHTML = `
+                <td><input type="text" class="form-control form-control-sm" value="${esc(row.key || '')}" placeholder="main_image"></td>
+                <td><input type="text" class="form-control form-control-sm" value="${esc(row.label || '')}" placeholder="メイン画像"></td>
+                <td>${numberInput(row.x ?? 0, '0.1')}</td>
+                <td>${numberInput(row.y ?? 0, '0.1')}</td>
+                <td>${numberInput(row.w ?? 120, '0.1')}</td>
+                <td>${numberInput(row.h ?? 120, '0.1')}</td>
+                <td><button type="button" class="btn btn-sm btn-outline-danger">削除</button></td>
+            `;
+
+            tr.querySelector('button').addEventListener('click', () => {
+                imageRows.splice(index, 1);
+                renderImageTable();
+            });
+
+            tr.querySelectorAll('input').forEach((input) => {
+                input.addEventListener('input', () => {
+                    const values = tr.querySelectorAll('input');
+                    imageRows[index] = {
+                        key: values[0].value.trim(),
+                        label: values[1].value.trim(),
+                        x: values[2].value,
+                        y: values[3].value,
+                        w: values[4].value,
+                        h: values[5].value,
+                    };
+                });
+            });
+
+            imageTableBody.appendChild(tr);
+        });
+    }
+
+    document.getElementById('add-text-row').addEventListener('click', () => {
+        textRows.push({
+            key: '',
+            label: '',
+            x: 0,
+            y: 0,
+            w: 120,
+            h: 80,
+            font_size: 12,
+            writing_mode: 'horizontal',
+        });
+        renderTextTable();
+    });
+
+    document.getElementById('add-image-row').addEventListener('click', () => {
+        imageRows.push({
+            key: '',
+            label: '',
+            x: 0,
+            y: 0,
+            w: 120,
+            h: 120,
+        });
+        renderImageTable();
+    });
+
+    document.getElementById('project-form').addEventListener('submit', () => {
+        textJsonField.value = JSON.stringify(textRows);
+        imageJsonField.value = JSON.stringify(imageRows);
+    });
+
+    if (layoutTarget) {
+        layoutTarget.addEventListener('change', () => {
+            const url = new URL(window.location.href);
+            url.searchParams.set('layout_target', layoutTarget.value || '__project__');
+            window.location.href = url.toString();
+        });
+    }
+
+    renderTextTable();
+    renderImageTable();
+})();
+</script>
+{% endblock %}
