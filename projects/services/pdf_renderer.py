@@ -2,8 +2,11 @@ from __future__ import annotations
 
 import io
 import os
+import hashlib
 from pathlib import Path
 from typing import Iterable, Literal
+from urllib.parse import urlparse
+from urllib.request import urlopen
 from zipfile import ZIP_DEFLATED, ZipFile
 
 from django.core.files.storage import default_storage
@@ -13,6 +16,7 @@ from reportlab.lib.utils import ImageReader
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.cidfonts import UnicodeCIDFont
 from reportlab.pdfbase.ttfonts import TTFont
+from reportlab.pdfbase.ttfonts import TTFError
 from reportlab.pdfgen import canvas
 
 from projects.constants import DEFAULT_POSITIONS
@@ -22,14 +26,21 @@ from projects.models import Page, PageImage, Project
 class PDFRenderService:
     OutputProfile = Literal['preview', 'print']
     _project_root = Path(__file__).resolve().parents[2]
-    JAPANESE_FONT_NAME = 'NotoSansJP'
-    FALLBACK_JAPANESE_FONT_NAME = 'HeiseiKakuGo-W5'
-    _active_japanese_font_name = JAPANESE_FONT_NAME
-    _japanese_font_registered = False
-    _noto_font_candidates = (
+    GOTHIC_FONT_NAME = 'NotoSansJP'
+    MINCHO_FONT_NAME = 'NotoSerifJP'
+    FALLBACK_GOTHIC_FONT_NAME = 'HeiseiKakuGo-W5'
+    FALLBACK_MINCHO_FONT_NAME = 'HeiseiMin-W3'
+    _active_font_names: dict[str, str] = {}
+    _registered_font_families: set[str] = set()
+    _noto_sans_font_candidates = (
         'NotoSansJP-Regular.ttf',
         'NotoSansJP-Regular.otf',
         'NotoSansJP-VariableFont_wght.ttf',
+    )
+    _noto_serif_font_candidates = (
+        'NotoSerifJP-Regular.otf',
+        'NotoSerifJP-Regular.ttf',
+        'NotoSerifJP-VariableFont_wght.ttf',
     )
     _noto_font_dirs = (
         _project_root / 'fonts',
@@ -39,42 +50,41 @@ class PDFRenderService:
         Path('/usr/share/fonts'),
         Path('/usr/local/share/fonts'),
     )
+    _font_cache_dir = Path(os.getenv('PDF_FONT_CACHE_DIR', '/tmp/ppm_pdf_fonts'))
     VERTICAL_CHAR_MAP = {
         '|': '｜',
         'ー': '｜',
         'ｰ': '｜',
-        '、': '︑',
-        '。': '︒',
-        '，': '︐',
-        '．': '︒',
-        '､': '︑',
-        '｡': '︒',
-        ',': '︐',
-        '.': '︒',
-        '(': '︵',
-        ')': '︶',
-        '（': '︵',
-        '）': '︶',
-        '[': '︹',
-        ']': '︺',
-        '［': '︹',
-        '］': '︺',
-        '{': '︷',
-        '}': '︸',
-        '｛': '︷',
-        '｝': '︸',
-        '「': '﹁',
-        '」': '﹂',
-        '｢': '﹁',
-        '｣': '﹂',
-        '『': '﹃',
-        '』': '﹄',
-        '〈': '︿',
-        '〉': '﹀',
-        '《': '︽',
-        '》': '︾',
-        '【': '︻',
-        '】': '︼',
+        '―': '｜',
+        '—': '｜',
+        '〜': '〜',
+        '～': '〜',
+        '、': '、',
+        '。': '。',
+        '，': '、',
+        '．': '。',
+        '､': '、',
+        '｡': '。',
+        ',': '、',
+        '.': '。',
+        '(': '（',
+        ')': '）',
+        '[': '［',
+        ']': '］',
+        '{': '｛',
+        '}': '｝',
+        '｢': '「',
+        '｣': '」',
+        '“': '「',
+        '”': '」',
+        '"': '」',
+        '!': '！',
+    }
+    VERTICAL_DRAW_FALLBACK_MAP: dict[str, str] = {
+        '〝': '﹁',
+        '〟': '﹂',
+        '︴': '〜',
+        '︱': '｜',
     }
     # Fine-tune punctuation placement for vertical layout.
     # Offsets are relative to font size: (x_ratio, y_ratio).
@@ -94,6 +104,11 @@ class PDFRenderService:
         '？': (0.12, 0.12),
         '!': (0.12, 0.12),
         '?': (0.12, 0.12),
+        '｜': (0.10, 0.0),
+        '︱': (0.10, 0.0),
+        '︴': (0.10, 0.08),
+        '〝': (0.18, 0.08),
+        '〟': (0.18, 0.08),
         '」': (0.18, 0.06),
         '』': (0.18, 0.06),
         '）': (0.18, 0.06),
@@ -119,21 +134,36 @@ class PDFRenderService:
     }
     IMAGE_PROFILE_SETTINGS: dict[str, dict[str, int]] = {
         'preview': {'dpi': 120, 'jpeg_quality': 45},
-        'print': {'dpi': 300, 'jpeg_quality': 90},
+        'print': {'dpi': 350, 'jpeg_quality': 90},
     }
 
     @classmethod
-    def _find_noto_font_path(cls) -> Path | None:
-        env_path = os.getenv('NOTO_SANS_JP_FONT_PATH')
+    def _find_noto_font_path(cls, family: str) -> Path | None:
+        if family == 'mincho':
+            env_var = 'NOTO_SERIF_JP_FONT_PATH'
+            env_url_var = 'NOTO_SERIF_JP_FONT_URL'
+            candidates = cls._noto_serif_font_candidates
+        else:
+            env_var = 'NOTO_SANS_JP_FONT_PATH'
+            env_url_var = 'NOTO_SANS_JP_FONT_URL'
+            candidates = cls._noto_sans_font_candidates
+
+        env_path = os.getenv(env_var)
         if env_path:
             path = Path(env_path).expanduser()
             if path.exists():
                 return path
 
+        font_url = os.getenv(env_url_var)
+        if font_url:
+            downloaded_path = cls._download_font_from_url(font_url, family)
+            if downloaded_path:
+                return downloaded_path
+
         for base_dir in cls._noto_font_dirs:
             if not base_dir.exists():
                 continue
-            for candidate in cls._noto_font_candidates:
+            for candidate in candidates:
                 direct_path = base_dir / candidate
                 if direct_path.exists():
                     return direct_path
@@ -143,17 +173,60 @@ class PDFRenderService:
         return None
 
     @classmethod
-    def _ensure_japanese_font(cls) -> str:
-        if not cls._japanese_font_registered:
-            noto_font_path = cls._find_noto_font_path()
-            if noto_font_path:
-                pdfmetrics.registerFont(TTFont(cls.JAPANESE_FONT_NAME, str(noto_font_path)))
-                cls._active_japanese_font_name = cls.JAPANESE_FONT_NAME
+    def _download_font_from_url(cls, font_url: str, family: str) -> Path | None:
+        parsed = urlparse(str(font_url).strip())
+        if parsed.scheme not in {'http', 'https'}:
+            return None
+
+        suffix = Path(parsed.path).suffix.lower()
+        if suffix not in {'.ttf', '.otf'}:
+            return None
+
+        digest = hashlib.sha256(font_url.encode('utf-8')).hexdigest()[:16]
+        cache_file = cls._font_cache_dir / f'{family}_{digest}{suffix}'
+        if cache_file.exists():
+            return cache_file
+
+        try:
+            cls._font_cache_dir.mkdir(parents=True, exist_ok=True)
+            with urlopen(font_url, timeout=10) as response:
+                data = response.read(20 * 1024 * 1024)
+            if not data:
+                return None
+            temp_file = cache_file.with_suffix(f'{suffix}.tmp')
+            temp_file.write_bytes(data)
+            temp_file.replace(cache_file)
+            return cache_file
+        except Exception:
+            return None
+
+    @classmethod
+    def _ensure_japanese_font(cls, family: str) -> str:
+        normalized_family = 'mincho' if family == 'mincho' else 'gothic'
+        if normalized_family not in cls._registered_font_families:
+            if normalized_family == 'mincho':
+                font_name = cls.MINCHO_FONT_NAME
+                fallback_name = cls.FALLBACK_MINCHO_FONT_NAME
             else:
-                pdfmetrics.registerFont(UnicodeCIDFont(cls.FALLBACK_JAPANESE_FONT_NAME))
-                cls._active_japanese_font_name = cls.FALLBACK_JAPANESE_FONT_NAME
-            cls._japanese_font_registered = True
-        return cls._active_japanese_font_name
+                font_name = cls.GOTHIC_FONT_NAME
+                fallback_name = cls.FALLBACK_GOTHIC_FONT_NAME
+
+            noto_font_path = cls._find_noto_font_path(normalized_family)
+            try:
+                if noto_font_path:
+                    pdfmetrics.registerFont(TTFont(font_name, str(noto_font_path)))
+                    cls._active_font_names[normalized_family] = font_name
+                else:
+                    pdfmetrics.registerFont(UnicodeCIDFont(fallback_name))
+                    cls._active_font_names[normalized_family] = fallback_name
+            except (TTFError, OSError, KeyError, ValueError):
+                if normalized_family == 'mincho':
+                    # Keep PDF generation alive even when Mincho font cannot be loaded.
+                    return cls._ensure_japanese_font('gothic')
+                pdfmetrics.registerFont(UnicodeCIDFont(cls.FALLBACK_GOTHIC_FONT_NAME))
+                cls._active_font_names[normalized_family] = cls.FALLBACK_GOTHIC_FONT_NAME
+            cls._registered_font_families.add(normalized_family)
+        return cls._active_font_names[normalized_family]
 
     @staticmethod
     def _read_template(project: Project, page: Page | None = None) -> PdfReader:
@@ -232,6 +305,30 @@ class PDFRenderService:
         return columns
 
     @classmethod
+    def _draw_vertical_char_safe(
+        cls,
+        draw_canvas: canvas.Canvas,
+        x: float,
+        y: float,
+        ch: str,
+    ) -> None:
+        candidates = [
+            ch,
+            cls.VERTICAL_DRAW_FALLBACK_MAP.get(ch, ''),
+            '□',
+        ]
+        seen: set[str] = set()
+        for candidate in candidates:
+            if not candidate or candidate in seen:
+                continue
+            seen.add(candidate)
+            try:
+                draw_canvas.drawString(x, y, candidate)
+                return
+            except Exception:
+                continue
+
+    @classmethod
     def _draw_vertical_text(
         cls,
         draw_canvas: canvas.Canvas,
@@ -263,15 +360,28 @@ class PDFRenderService:
                 if baseline_y < page_height - (top_y + text_height):
                     break
                 offset_x_ratio, offset_y_ratio = cls.VERTICAL_PUNCT_OFFSET_MAP.get(ch, (0.0, 0.0))
-                draw_canvas.drawString(
+                cls._draw_vertical_char_safe(
+                    draw_canvas,
                     column_x + (font_size * offset_x_ratio),
                     baseline_y + (font_size * offset_y_ratio),
                     ch,
                 )
 
     @classmethod
-    def _draw_text(cls, draw_canvas: canvas.Canvas, data: dict, positions: dict, page_width: float, page_height: float):
-        font_name = cls._ensure_japanese_font()
+    def _draw_text(
+        cls,
+        draw_canvas: canvas.Canvas,
+        data: dict,
+        positions: dict,
+        page_width: float,
+        page_height: float,
+        output_profile: OutputProfile,
+    ):
+        if output_profile == 'print':
+            # Use K-only black for print profile text.
+            draw_canvas.setFillColorCMYK(0, 0, 0, 1)
+        else:
+            draw_canvas.setFillColorRGB(0, 0, 0)
         text_positions = {
             key: pos for key, pos in positions.items() if isinstance(pos, dict) and 'font_size' in pos
         }
@@ -279,9 +389,16 @@ class PDFRenderService:
             value = data.get(key)
             if not value:
                 continue
+            font_family = str(pos.get('font_family', 'gothic')).lower()
+            font_name = cls._ensure_japanese_font(font_family)
             font_size = float(pos.get('font_size', 12))
             x, top_y, text_width, text_height, line_height = cls._normalize_text_box(pos, page_width, page_height, font_size)
-            draw_canvas.setFont(font_name, font_size)
+            try:
+                draw_canvas.setFont(font_name, font_size)
+            except Exception:
+                fallback_font_name = cls._ensure_japanese_font('gothic')
+                draw_canvas.setFont(fallback_font_name, font_size)
+                font_name = fallback_font_name
             writing_mode = str(pos.get('writing_mode', 'horizontal')).lower()
             if writing_mode == 'vertical':
                 cls._draw_vertical_text(
@@ -355,7 +472,22 @@ class PDFRenderService:
                 image.mode == 'P' and 'transparency' in image.info
             )
             output = io.BytesIO()
-            if has_alpha:
+            if output_profile == 'print':
+                if has_alpha:
+                    rgba = image.convert('RGBA')
+                    flattened = Image.new('RGB', rgba.size, (255, 255, 255))
+                    flattened.paste(rgba, mask=rgba.split()[-1])
+                    cmyk_image = flattened.convert('CMYK')
+                else:
+                    cmyk_image = image.convert('CMYK')
+                cmyk_image.save(
+                    output,
+                    format='JPEG',
+                    quality=settings['jpeg_quality'],
+                    optimize=True,
+                    progressive=False,
+                )
+            elif has_alpha:
                 image.save(output, format='PNG', optimize=True)
             else:
                 image.convert('RGB').save(
@@ -414,7 +546,7 @@ class PDFRenderService:
 
         overlay_buffer = io.BytesIO()
         draw_canvas = canvas.Canvas(overlay_buffer, pagesize=(width, height))
-        cls._draw_text(draw_canvas, page.input_data or {}, positions, width, height)
+        cls._draw_text(draw_canvas, page.input_data or {}, positions, width, height, output_profile)
         cls._draw_images(draw_canvas, page, positions, width, height, output_profile)
         draw_canvas.save()
 

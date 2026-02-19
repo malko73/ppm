@@ -21,7 +21,7 @@ PPM は、テンプレート PDF にテキスト・画像を差し込み、ペ�
 - ページ追加/編集/削除/並び替え
 - 単ページ PDF 出力（校正確認）
 - 全ページ結合 PDF 出力（軽量）
-- ページ別 PDF の ZIP 出力（印刷用 300dpi）
+- ページ別 PDF の ZIP 出力（印刷用 350dpi）
 
 ---
 
@@ -137,7 +137,7 @@ celery -A config worker -l info
 ### 5.5 出力運用
 - 全ページ結合PDF（軽量）
   - 画面確認・社内回覧向け
-- 全ページZIP（印刷用300dpi）
+- 全ページZIP（印刷用350dpi）
   - 印刷入稿向け
 - 校正確認（単ページ PDF）
   - ページ単位のチェック向け
@@ -200,6 +200,9 @@ celery -A config worker -l info
 
 ### 7.6 フォント崩れ（日本語）
 - `NOTO_SANS_JP_FONT_PATH` を設定し、Noto Sans JP の実体ファイルを指定
+- 明朝を使う場合は `NOTO_SERIF_JP_FONT_PATH` を指定
+- パス指定が難しい場合は `NOTO_SANS_JP_FONT_URL` / `NOTO_SERIF_JP_FONT_URL`（`http/https` の `ttf/otf`）でも指定可能
+- ダウンロードしたフォントは `PDF_FONT_CACHE_DIR`（既定: `/tmp/ppm_pdf_fonts`）へキャッシュ
 - 未設定時は CID フォントへフォールバック
 
 ---
@@ -222,7 +225,7 @@ celery -A config worker -l info
 ## 9. 運用ルール（推奨）
 - 本番作業は管理者アカウントを個人別に発行し、共有アカウントを避ける
 - 参加者付与は最小権限で運用する
-- 印刷用データは ZIP（300dpi）を正本とし、軽量PDFは確認用途とする
+- 印刷用データは ZIP（350dpi）を正本とし、軽量PDFは確認用途とする
 - テンプレート変更時は、既存プロジェクトへの影響を事前検証する
 
 ---
@@ -248,4 +251,3 @@ celery -A config worker -l info
 - 画面URL:
 - ログ抜粋:
 - 暫定対応:
-
