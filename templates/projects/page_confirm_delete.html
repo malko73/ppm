@@ -1,0 +1,13 @@
+{% extends 'base.html' %}
+{% block content %}
+<div class="card">
+    <div class="card-body">
+        <h1 class="h5">ページ削除</h1>
+        <p>「{{ object.page_name|default:object.page_number }}」を削除しますか？</p>
+        <form method="post">{% csrf_token %}
+            <button class="btn btn-danger" type="submit">削除する</button>
+            <a class="btn btn-secondary" href="{% url 'project_detail' object.project.pk %}">キャンセル</a>
+        </form>
+    </div>
+</div>
+{% endblock %}

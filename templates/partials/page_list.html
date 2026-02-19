@@ -1,0 +1,41 @@
+<table class="table table-bordered bg-white">
+    <thead>
+        <tr>
+            <th style="width: 40px;"></th>
+            <th>ページ番号</th>
+            <th>ページ名</th>
+            <th>テンプレート</th>
+            <th>タイトル</th>
+            <th style="width: 140px;">校了</th>
+            <th style="width: 280px;">操作</th>
+        </tr>
+    </thead>
+    <tbody id="sortable-pages">
+    {% for page in pages|default:project.pages.all %}
+        <tr data-page-id="{{ page.id }}">
+            <td class="drag-handle" style="cursor: move;">☰</td>
+            <td>{{ page.page_number }}</td>
+            <td>{{ page.page_name|default:'-' }}</td>
+            <td>{{ page.project_template.name|default:'-' }}</td>
+            <td>{{ page.input_data.title|default:'-' }}</td>
+            <td>
+                <form method="post" action="{% url 'page_toggle_finalized' project.pk page.pk %}">
+                    {% csrf_token %}
+                    {% if page.is_finalized %}
+                    <button type="submit" class="btn btn-sm btn-success w-100 fw-bold">ON（校了）</button>
+                    {% else %}
+                    <button type="submit" class="btn btn-sm btn-outline-secondary w-100">OFF（未校了）</button>
+                    {% endif %}
+                </form>
+            </td>
+            <td class="d-flex gap-1">
+                <a class="btn btn-sm btn-outline-primary" href="{% url 'page_update' project.pk page.pk %}">編集</a>
+                <a class="btn btn-sm btn-outline-danger" href="{% url 'page_delete' project.pk page.pk %}">削除</a>
+                <a class="btn btn-sm btn-outline-success" href="{% url 'page_pdf' project.pk page.pk %}" target="_blank" rel="noopener noreferrer">校正確認</a>
+            </td>
+        </tr>
+    {% empty %}
+        <tr><td colspan="7" class="text-center text-muted">ページがありません</td></tr>
+    {% endfor %}
+    </tbody>
+</table>

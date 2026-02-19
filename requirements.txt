@@ -1,0 +1,12 @@
+Django>=5.1,<6.0
+django-environ>=0.11
+django-crispy-forms>=2.3
+crispy-bootstrap5>=2024.10
+mysqlclient>=2.2
+django-storages>=1.14
+boto3>=1.35
+pypdf>=5.0
+reportlab>=4.2
+Pillow>=10.4
+celery>=5.4
+redis>=5.1
