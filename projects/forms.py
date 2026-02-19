@@ -122,6 +122,7 @@ class ProjectForm(forms.ModelForm):
                         **row_base,
                         'font_size': int(pos.get('font_size', 12)),
                         'writing_mode': str(pos.get('writing_mode', 'horizontal')),
+                        'font_family': str(pos.get('font_family', 'gothic')),
                     }
                 )
             else:
@@ -181,10 +182,14 @@ class ProjectForm(forms.ModelForm):
             if row_type == 'テキスト':
                 font_size = int(ProjectForm._as_float(row.get('font_size'), f'{row_type} {index} 行目 文字サイズ', 1))
                 writing_mode = str(row.get('writing_mode', 'horizontal')).strip().lower()
+                font_family = str(row.get('font_family', 'gothic')).strip().lower()
                 if writing_mode not in {'horizontal', 'vertical'}:
                     raise ValidationError(f'{row_type} {index} 行目: 文字方向が不正です。')
+                if font_family not in {'gothic', 'mincho'}:
+                    raise ValidationError(f'{row_type} {index} 行目: フォントが不正です。')
                 item['font_size'] = font_size
                 item['writing_mode'] = writing_mode
+                item['font_family'] = font_family
             parsed.append(item)
 
         return parsed
@@ -231,6 +236,7 @@ class ProjectForm(forms.ModelForm):
                 'h': mm_to_pt(row['h']),
                 'font_size': row['font_size'],
                 'writing_mode': row['writing_mode'],
+                'font_family': row['font_family'],
                 'order': index,
             }
 

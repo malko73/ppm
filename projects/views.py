@@ -254,6 +254,10 @@ class PageUpdateView(UserPageMixin, UpdateView):
 class PageDeleteView(UserPageMixin, DeleteView):
     template_name = 'projects/page_confirm_delete.html'
 
+    def get_form_kwargs(self):
+        # DeleteView uses a plain Form, so do not inject PageForm-specific kwargs.
+        return DeleteView.get_form_kwargs(self)
+
     def get_success_url(self):
         return reverse('project_detail', kwargs={'pk': self.project.pk})
 

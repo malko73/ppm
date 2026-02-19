@@ -1,4 +1,4 @@
-# MACKs 1.0.0
+# MACKs 1.0.1
 
 冊子・カタログ制作向けの Django ベース Web アプリケーションです。  
 テンプレート PDF に対して、テキストや画像をページ単位で配置し、単体 PDF・結合 PDF・ZIP を出力できます。
@@ -9,6 +9,15 @@
 - 変更内容は本READMEの「更新ログ」に追記する
 
 ## 更新ログ
+### 1.0.1 - 2026-02-19
+- テキスト配置にフォント選択（ゴシック/明朝）を追加
+- PDF描画でフォント切替・明朝失敗時フォールバックを追加
+- 縦書き記号（句読点/かっこ/引用符/長音符）の表示崩れ・欠落を改善
+- ページ削除時のエラーを修正し、削除前確認ダイアログを追加
+- 印刷用ZIPの解像度を 350dpi に変更（関連文言を更新）
+- 印刷用PDFの画像/文字をCMYK出力に対応
+- PDFフォントのURL指定読込（ttf/otf）とキャッシュに対応
+
 ### 1.0.0 - 2026-02-19
 - 正式リリース
 - アプリ名称を `MACKs` に統一
@@ -75,7 +84,7 @@ DJANGO_SECRET_KEY=change-me
 DEBUG=True
 ALLOWED_HOSTS=127.0.0.1,localhost
 APP_NAME=MACKs
-APP_VERSION=1.0.0
+APP_VERSION=1.0.1
 
 MYSQL_DATABASE=appsdb
 MYSQL_USER=rocky
@@ -89,6 +98,13 @@ AWS_ACCESS_KEY_ID=
 AWS_SECRET_ACCESS_KEY=
 AWS_STORAGE_BUCKET_NAME=
 AWS_S3_REGION_NAME=ap-northeast-1
+
+# PDFフォント（任意: パス優先、次にURL）
+NOTO_SANS_JP_FONT_PATH=
+NOTO_SERIF_JP_FONT_PATH=
+NOTO_SANS_JP_FONT_URL=
+NOTO_SERIF_JP_FONT_URL=
+PDF_FONT_CACHE_DIR=/tmp/ppm_pdf_fonts
 
 # Celery を使う場合のみ
 CELERY_BROKER_URL=redis://127.0.0.1:6379/0

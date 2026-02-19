@@ -92,6 +92,7 @@
                                     <th>高さ (mm)</th>
                                     <th>文字サイズ (pt)</th>
                                     <th>文字方向</th>
+                                    <th>フォント</th>
                                     <th></th>
                                 </tr>
                             </thead>
@@ -173,6 +174,17 @@
         `;
     }
 
+    function fontFamilySelect(value) {
+        const gothicSelected = value === 'gothic' ? 'selected' : '';
+        const minchoSelected = value === 'mincho' ? 'selected' : '';
+        return `
+            <select class="form-select form-select-sm">
+                <option value="gothic" ${gothicSelected}>ゴシック</option>
+                <option value="mincho" ${minchoSelected}>明朝</option>
+            </select>
+        `;
+    }
+
     function renderTextTable() {
         textTableBody.innerHTML = '';
         textRows.forEach((row, index) => {
@@ -186,6 +198,7 @@
                 <td>${numberInput(row.h ?? 80, '0.1')}</td>
                 <td>${numberInput(row.font_size ?? 12, '1')}</td>
                 <td>${textModeSelect(row.writing_mode || 'horizontal')}</td>
+                <td>${fontFamilySelect(row.font_family || 'gothic')}</td>
                 <td><button type="button" class="btn btn-sm btn-outline-danger">削除</button></td>
             `;
 
@@ -207,9 +220,10 @@
                         h: values[5].value,
                         font_size: values[6].value,
                         writing_mode: values[7].value,
+                        font_family: values[8].value,
                     };
                 });
-                if (inputIndex === 7) {
+                if (inputIndex === 7 || inputIndex === 8) {
                     input.addEventListener('change', () => input.dispatchEvent(new Event('input')));
                 }
             });
@@ -265,6 +279,7 @@
             h: 80,
             font_size: 12,
             writing_mode: 'horizontal',
+            font_family: 'gothic',
         });
         renderTextTable();
     });
