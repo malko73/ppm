@@ -1,4 +1,4 @@
-# MACKs 1.0.1
+# MACKs 1.0.2
 
 冊子・カタログ制作向けの Django ベース Web アプリケーションです。  
 テンプレート PDF に対して、テキストや画像をページ単位で配置し、単体 PDF・結合 PDF・ZIP を出力できます。
@@ -9,6 +9,10 @@
 - 変更内容は本READMEの「更新ログ」に追記する
 
 ## 更新ログ
+### 1.0.2 - 2026-02-20
+- プロジェクト設定のテキスト配置に「横書き文字の太さ」「横書き文字色」を追加
+- 横書きテキストのみ太さ・色をPDF描画へ反映（縦書きは従来どおり）
+
 ### 1.0.1 - 2026-02-19
 - テキスト配置にフォント選択（ゴシック/明朝）を追加
 - PDF描画でフォント切替・明朝失敗時フォールバックを追加
@@ -84,7 +88,7 @@ DJANGO_SECRET_KEY=change-me
 DEBUG=True
 ALLOWED_HOSTS=127.0.0.1,localhost
 APP_NAME=MACKs
-APP_VERSION=1.0.1
+APP_VERSION=1.0.2
 
 MYSQL_DATABASE=appsdb
 MYSQL_USER=rocky
@@ -99,12 +103,9 @@ AWS_SECRET_ACCESS_KEY=
 AWS_STORAGE_BUCKET_NAME=
 AWS_S3_REGION_NAME=ap-northeast-1
 
-# PDFフォント（任意: パス優先、次にURL）
+# PDFフォント（任意: 固定フォント運用）
 NOTO_SANS_JP_FONT_PATH=
 NOTO_SERIF_JP_FONT_PATH=
-NOTO_SANS_JP_FONT_URL=
-NOTO_SERIF_JP_FONT_URL=
-PDF_FONT_CACHE_DIR=/tmp/ppm_pdf_fonts
 
 # Celery を使う場合のみ
 CELERY_BROKER_URL=redis://127.0.0.1:6379/0

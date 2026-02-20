@@ -11,6 +11,8 @@ from .models import Page, PageImage, Project, ProjectTemplate, validate_pdf
 PT_PER_MM = 72 / 25.4
 VALID_KEY_RE = re.compile(r'^[a-zA-Z][a-zA-Z0-9_]{0,63}$')
 FIXED_IMAGE_KEYS = {'main_image', 'sub_image1', 'sub_image2'}
+VALID_HEX_COLOR_RE = re.compile(r'^#[0-9a-fA-F]{6}$')
+HORIZONTAL_FONT_WEIGHTS = {'normal', 'medium', 'bold'}
 
 
 class MultipleFileInput(forms.ClearableFileInput):
@@ -123,6 +125,8 @@ class ProjectForm(forms.ModelForm):
                         'font_size': int(pos.get('font_size', 12)),
                         'writing_mode': str(pos.get('writing_mode', 'horizontal')),
                         'font_family': str(pos.get('font_family', 'gothic')),
+                        'horizontal_font_weight': str(pos.get('horizontal_font_weight', 'normal')),
+                        'horizontal_text_color': str(pos.get('horizontal_text_color', '#000000')),
                     }
                 )
             else:
@@ -187,9 +191,21 @@ class ProjectForm(forms.ModelForm):
                     raise ValidationError(f'{row_type} {index} 行目: 文字方向が不正です。')
                 if font_family not in {'gothic', 'mincho'}:
                     raise ValidationError(f'{row_type} {index} 行目: フォントが不正です。')
+                horizontal_font_weight = str(row.get('horizontal_font_weight', 'normal')).strip().lower()
+                horizontal_text_color = str(row.get('horizontal_text_color', '#000000')).strip()
+                if writing_mode == 'horizontal':
+                    if horizontal_font_weight not in HORIZONTAL_FONT_WEIGHTS:
+                        raise ValidationError(f'{row_type} {index} 行目: 横書き文字の太さが不正です。')
+                    if not VALID_HEX_COLOR_RE.match(horizontal_text_color):
+                        raise ValidationError(f'{row_type} {index} 行目: 横書き文字色は #RRGGBB 形式で入力してください。')
+                else:
+                    horizontal_font_weight = 'normal'
+                    horizontal_text_color = '#000000'
                 item['font_size'] = font_size
                 item['writing_mode'] = writing_mode
                 item['font_family'] = font_family
+                item['horizontal_font_weight'] = horizontal_font_weight
+                item['horizontal_text_color'] = horizontal_text_color.upper()
             parsed.append(item)
 
         return parsed
@@ -237,6 +253,8 @@ class ProjectForm(forms.ModelForm):
                 'font_size': row['font_size'],
                 'writing_mode': row['writing_mode'],
                 'font_family': row['font_family'],
+                'horizontal_font_weight': row['horizontal_font_weight'],
+                'horizontal_text_color': row['horizontal_text_color'],
                 'order': index,
             }
 

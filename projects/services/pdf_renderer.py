@@ -2,16 +2,14 @@ from __future__ import annotations
 
 import io
 import os
-import hashlib
 from pathlib import Path
 from typing import Iterable, Literal
-from urllib.parse import urlparse
-from urllib.request import urlopen
 from zipfile import ZIP_DEFLATED, ZipFile
 
 from django.core.files.storage import default_storage
 from PIL import Image, ImageOps
 from pypdf import PdfReader, PdfWriter
+from reportlab.lib.colors import HexColor
 from reportlab.lib.utils import ImageReader
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.cidfonts import UnicodeCIDFont
@@ -50,7 +48,6 @@ class PDFRenderService:
         Path('/usr/share/fonts'),
         Path('/usr/local/share/fonts'),
     )
-    _font_cache_dir = Path(os.getenv('PDF_FONT_CACHE_DIR', '/tmp/ppm_pdf_fonts'))
     VERTICAL_CHAR_MAP = {
         '|': '｜',
         'ー': '｜',
@@ -136,16 +133,19 @@ class PDFRenderService:
         'preview': {'dpi': 120, 'jpeg_quality': 45},
         'print': {'dpi': 350, 'jpeg_quality': 90},
     }
+    HORIZONTAL_FONT_WEIGHTS: dict[str, int] = {
+        'normal': 1,
+        'medium': 2,
+        'bold': 3,
+    }
 
     @classmethod
     def _find_noto_font_path(cls, family: str) -> Path | None:
         if family == 'mincho':
             env_var = 'NOTO_SERIF_JP_FONT_PATH'
-            env_url_var = 'NOTO_SERIF_JP_FONT_URL'
             candidates = cls._noto_serif_font_candidates
         else:
             env_var = 'NOTO_SANS_JP_FONT_PATH'
-            env_url_var = 'NOTO_SANS_JP_FONT_URL'
             candidates = cls._noto_sans_font_candidates
 
         env_path = os.getenv(env_var)
@@ -153,12 +153,6 @@ class PDFRenderService:
             path = Path(env_path).expanduser()
             if path.exists():
                 return path
-
-        font_url = os.getenv(env_url_var)
-        if font_url:
-            downloaded_path = cls._download_font_from_url(font_url, family)
-            if downloaded_path:
-                return downloaded_path
 
         for base_dir in cls._noto_font_dirs:
             if not base_dir.exists():
@@ -171,34 +165,6 @@ class PDFRenderService:
                     if nested_path.exists():
                         return nested_path
         return None
-
-    @classmethod
-    def _download_font_from_url(cls, font_url: str, family: str) -> Path | None:
-        parsed = urlparse(str(font_url).strip())
-        if parsed.scheme not in {'http', 'https'}:
-            return None
-
-        suffix = Path(parsed.path).suffix.lower()
-        if suffix not in {'.ttf', '.otf'}:
-            return None
-
-        digest = hashlib.sha256(font_url.encode('utf-8')).hexdigest()[:16]
-        cache_file = cls._font_cache_dir / f'{family}_{digest}{suffix}'
-        if cache_file.exists():
-            return cache_file
-
-        try:
-            cls._font_cache_dir.mkdir(parents=True, exist_ok=True)
-            with urlopen(font_url, timeout=10) as response:
-                data = response.read(20 * 1024 * 1024)
-            if not data:
-                return None
-            temp_file = cache_file.with_suffix(f'{suffix}.tmp')
-            temp_file.write_bytes(data)
-            temp_file.replace(cache_file)
-            return cache_file
-        except Exception:
-            return None
 
     @classmethod
     def _ensure_japanese_font(cls, family: str) -> str:
@@ -367,6 +333,52 @@ class PDFRenderService:
                     ch,
                 )
 
+    @staticmethod
+    def _normalize_hex_color(raw_color: str) -> str:
+        color = str(raw_color or '').strip()
+        if len(color) == 7 and color.startswith('#'):
+            try:
+                int(color[1:], 16)
+                return color.upper()
+            except ValueError:
+                pass
+        return '#000000'
+
+    @classmethod
+    def _horizontal_fill_color(
+        cls,
+        pos: dict,
+    ) -> HexColor:
+        raw_color = cls._normalize_hex_color(str(pos.get('horizontal_text_color', '#000000')))
+        return HexColor(raw_color)
+
+    @classmethod
+    def _horizontal_draw_offsets(
+        cls,
+        pos: dict,
+        font_size: float,
+    ) -> list[tuple[float, float]]:
+        weight = str(pos.get('horizontal_font_weight', 'normal')).strip().lower()
+        level = cls.HORIZONTAL_FONT_WEIGHTS.get(weight, 1)
+        if level <= 1:
+            return [(0.0, 0.0)]
+        base = max(0.18, font_size * 0.02)
+        if level == 2:
+            return [(0.0, 0.0), (base, 0.0)]
+        return [(0.0, 0.0), (base, 0.0), (0.0, base)]
+
+    @classmethod
+    def _draw_horizontal_line(
+        cls,
+        draw_canvas: canvas.Canvas,
+        x: float,
+        y: float,
+        text: str,
+        offsets: list[tuple[float, float]],
+    ) -> None:
+        for offset_x, offset_y in offsets:
+            draw_canvas.drawString(x + offset_x, y + offset_y, text)
+
     @classmethod
     def _draw_text(
         cls,
@@ -377,11 +389,6 @@ class PDFRenderService:
         page_height: float,
         output_profile: OutputProfile,
     ):
-        if output_profile == 'print':
-            # Use K-only black for print profile text.
-            draw_canvas.setFillColorCMYK(0, 0, 0, 1)
-        else:
-            draw_canvas.setFillColorRGB(0, 0, 0)
         text_positions = {
             key: pos for key, pos in positions.items() if isinstance(pos, dict) and 'font_size' in pos
         }
@@ -401,6 +408,10 @@ class PDFRenderService:
                 font_name = fallback_font_name
             writing_mode = str(pos.get('writing_mode', 'horizontal')).lower()
             if writing_mode == 'vertical':
+                if output_profile == 'print':
+                    draw_canvas.setFillColorCMYK(0, 0, 0, 1)
+                else:
+                    draw_canvas.setFillColorRGB(0, 0, 0)
                 cls._draw_vertical_text(
                     draw_canvas,
                     str(value),
@@ -414,6 +425,12 @@ class PDFRenderService:
                     page_height,
                 )
                 continue
+            horizontal_color = cls._normalize_hex_color(str(pos.get('horizontal_text_color', '#000000')))
+            if output_profile == 'print' and horizontal_color == '#000000':
+                draw_canvas.setFillColorCMYK(0, 0, 0, 1)
+            else:
+                draw_canvas.setFillColor(cls._horizontal_fill_color(pos))
+            draw_offsets = cls._horizontal_draw_offsets(pos, font_size)
             wrapped_lines = cls._wrap_text_to_width(str(value), font_name, font_size, text_width)
             max_lines = max(1, int(text_height // line_height))
             for line_index, line in enumerate(wrapped_lines):
@@ -422,7 +439,7 @@ class PDFRenderService:
                 baseline_y = page_height - top_y - font_size - (line_index * line_height)
                 if baseline_y < page_height - (top_y + text_height):
                     break
-                draw_canvas.drawString(x, baseline_y, line)
+                cls._draw_horizontal_line(draw_canvas, x, baseline_y, line, draw_offsets)
 
     @classmethod
     def _resolve_image_for_key(cls, page: Page, key: str, image_map: dict[str, PageImage]):
@@ -581,10 +598,12 @@ class PDFRenderService:
 
     @classmethod
     def zip_pages_bytes(cls, project: Project, pages: Iterable[Page]) -> bytes:
+        page_list = list(pages)
+        index_width = max(3, len(str(len(page_list))))
         output = io.BytesIO()
         with ZipFile(output, mode='w', compression=ZIP_DEFLATED) as zip_buffer:
-            for page in pages:
+            for index, page in enumerate(page_list, start=1):
                 page_pdf = cls.render_single_page_bytes(project, page, output_profile='print')
-                filename = f"{project.title}_page_{page.page_number}.pdf"
+                filename = f"{index:0{index_width}d}.pdf"
                 zip_buffer.writestr(filename, page_pdf)
         return output.getvalue()
