@@ -93,6 +93,8 @@
                                     <th>文字サイズ (pt)</th>
                                     <th>文字方向</th>
                                     <th>フォント</th>
+                                    <th>横書き文字の太さ</th>
+                                    <th>横書き文字色</th>
                                     <th></th>
                                 </tr>
                             </thead>
@@ -185,20 +187,72 @@
         `;
     }
 
+    function horizontalFontWeightSelect(value) {
+        const normalized = ['normal', 'medium', 'bold'].includes(value) ? value : 'normal';
+        const normalSelected = normalized === 'normal' ? 'selected' : '';
+        const mediumSelected = normalized === 'medium' ? 'selected' : '';
+        const boldSelected = normalized === 'bold' ? 'selected' : '';
+        return `
+            <select class="form-select form-select-sm">
+                <option value="normal" ${normalSelected}>通常</option>
+                <option value="medium" ${mediumSelected}>やや太字</option>
+                <option value="bold" ${boldSelected}>太字</option>
+            </select>
+        `;
+    }
+
+    function normalizeColor(value) {
+        const raw = String(value || '').trim();
+        const match = /^#[0-9a-fA-F]{6}$/.test(raw);
+        return match ? raw.toUpperCase() : '#000000';
+    }
+
+    function applyHorizontalStyleState(tr) {
+        const modeSelect = tr.querySelector('[data-field="writing_mode"]');
+        const weightSelect = tr.querySelector('[data-field="horizontal_font_weight"]');
+        const colorInput = tr.querySelector('[data-field="horizontal_text_color"]');
+        const isHorizontal = modeSelect && modeSelect.value === 'horizontal';
+        if (weightSelect) {
+            weightSelect.disabled = !isHorizontal;
+        }
+        if (colorInput) {
+            colorInput.disabled = !isHorizontal;
+        }
+    }
+
+    function readTextRow(tr) {
+        const getField = (name) => tr.querySelector(`[data-field="${name}"]`);
+        return {
+            key: getField('key').value.trim(),
+            label: getField('label').value.trim(),
+            x: getField('x').value,
+            y: getField('y').value,
+            w: getField('w').value,
+            h: getField('h').value,
+            font_size: getField('font_size').value,
+            writing_mode: getField('writing_mode').value,
+            font_family: getField('font_family').value,
+            horizontal_font_weight: getField('horizontal_font_weight').value,
+            horizontal_text_color: normalizeColor(getField('horizontal_text_color').value),
+        };
+    }
+
     function renderTextTable() {
         textTableBody.innerHTML = '';
         textRows.forEach((row, index) => {
             const tr = document.createElement('tr');
             tr.innerHTML = `
-                <td><input type="text" class="form-control form-control-sm" value="${esc(row.key || '')}" placeholder="title"></td>
-                <td><input type="text" class="form-control form-control-sm" value="${esc(row.label || '')}" placeholder="タイトル"></td>
-                <td>${numberInput(row.x ?? 0, '0.1')}</td>
-                <td>${numberInput(row.y ?? 0, '0.1')}</td>
-                <td>${numberInput(row.w ?? 120, '0.1')}</td>
-                <td>${numberInput(row.h ?? 80, '0.1')}</td>
-                <td>${numberInput(row.font_size ?? 12, '1')}</td>
-                <td>${textModeSelect(row.writing_mode || 'horizontal')}</td>
-                <td>${fontFamilySelect(row.font_family || 'gothic')}</td>
+                <td><input data-field="key" type="text" class="form-control form-control-sm" value="${esc(row.key || '')}" placeholder="title"></td>
+                <td><input data-field="label" type="text" class="form-control form-control-sm" value="${esc(row.label || '')}" placeholder="タイトル"></td>
+                <td><input data-field="x" type="number" class="form-control form-control-sm" step="0.1" value="${esc(row.x ?? 0)}"></td>
+                <td><input data-field="y" type="number" class="form-control form-control-sm" step="0.1" value="${esc(row.y ?? 0)}"></td>
+                <td><input data-field="w" type="number" class="form-control form-control-sm" step="0.1" value="${esc(row.w ?? 120)}"></td>
+                <td><input data-field="h" type="number" class="form-control form-control-sm" step="0.1" value="${esc(row.h ?? 80)}"></td>
+                <td><input data-field="font_size" type="number" class="form-control form-control-sm" step="1" value="${esc(row.font_size ?? 12)}"></td>
+                <td>${textModeSelect(row.writing_mode || 'horizontal').replace('<select', '<select data-field="writing_mode"')}</td>
+                <td>${fontFamilySelect(row.font_family || 'gothic').replace('<select', '<select data-field="font_family"')}</td>
+                <td>${horizontalFontWeightSelect(row.horizontal_font_weight || 'normal').replace('<select', '<select data-field="horizontal_font_weight"')}</td>
+                <td><input data-field="horizontal_text_color" type="color" class="form-control form-control-sm form-control-color p-1" value="${esc(normalizeColor(row.horizontal_text_color || '#000000'))}" title="横書き文字色"></td>
                 <td><button type="button" class="btn btn-sm btn-outline-danger">削除</button></td>
             `;
 
@@ -210,24 +264,15 @@
             const inputs = tr.querySelectorAll('input, select');
             inputs.forEach((input, inputIndex) => {
                 input.addEventListener('input', () => {
-                    const values = tr.querySelectorAll('input, select');
-                    textRows[index] = {
-                        key: values[0].value.trim(),
-                        label: values[1].value.trim(),
-                        x: values[2].value,
-                        y: values[3].value,
-                        w: values[4].value,
-                        h: values[5].value,
-                        font_size: values[6].value,
-                        writing_mode: values[7].value,
-                        font_family: values[8].value,
-                    };
+                    textRows[index] = readTextRow(tr);
+                    applyHorizontalStyleState(tr);
                 });
-                if (inputIndex === 7 || inputIndex === 8) {
+                if (inputIndex >= 7) {
                     input.addEventListener('change', () => input.dispatchEvent(new Event('input')));
                 }
             });
 
+            applyHorizontalStyleState(tr);
             textTableBody.appendChild(tr);
         });
     }
@@ -280,6 +325,8 @@
             font_size: 12,
             writing_mode: 'horizontal',
             font_family: 'gothic',
+            horizontal_font_weight: 'normal',
+            horizontal_text_color: '#000000',
         });
         renderTextTable();
     });
