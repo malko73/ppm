@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 import io
+import logging
 import os
 from pathlib import Path
 from typing import Iterable, Literal
 from zipfile import ZIP_DEFLATED, ZipFile
 
 from django.core.files.storage import default_storage
-from PIL import Image, ImageOps
+from PIL import Image, ImageDraw, ImageFont, ImageOps, features
 from pypdf import PdfReader, PdfWriter
 from reportlab.lib.colors import HexColor
 from reportlab.lib.utils import ImageReader
@@ -20,6 +21,8 @@ from reportlab.pdfgen import canvas
 from projects.constants import DEFAULT_POSITIONS
 from projects.models import Page, PageImage, Project
 
+logger = logging.getLogger(__name__)
+
 
 class PDFRenderService:
     OutputProfile = Literal['preview', 'print']
@@ -28,18 +31,53 @@ class PDFRenderService:
     MINCHO_FONT_NAME = 'NotoSerifJP'
     FALLBACK_GOTHIC_FONT_NAME = 'HeiseiKakuGo-W5'
     FALLBACK_MINCHO_FONT_NAME = 'HeiseiMin-W3'
-    _active_font_names: dict[str, str] = {}
-    _registered_font_families: set[str] = set()
-    _noto_sans_font_candidates = (
-        'NotoSansJP-Regular.ttf',
-        'NotoSansJP-Regular.otf',
-        'NotoSansJP-VariableFont_wght.ttf',
-    )
-    _noto_serif_font_candidates = (
-        'NotoSerifJP-Regular.otf',
-        'NotoSerifJP-Regular.ttf',
-        'NotoSerifJP-VariableFont_wght.ttf',
-    )
+    _active_font_names: dict[tuple[str, str], str] = {}
+    _registered_font_keys: set[tuple[str, str]] = set()
+    _font_family_tokens = {
+        'gothic': ('NotoSansJP', 'NotoSansCJKjp'),
+        'mincho': ('NotoSerifJP', 'NotoSerifCJKjp', 'SourceHanSerif'),
+    }
+    _weight_tokens = {
+        'normal': ('Regular', 'Normal', 'W3'),
+        'medium': ('Medium', 'W5', 'DemiBold'),
+        'bold': ('Bold', 'Heavy', 'W7'),
+    }
+    _noto_font_candidates = {
+        'gothic': {
+            'normal': (
+                'NotoSansJP-Regular.ttf',
+                'NotoSansJP-Regular.otf',
+                'NotoSansJP-VariableFont_wght.ttf',
+            ),
+            'medium': (
+                'NotoSansJP-Medium.ttf',
+                'NotoSansJP-Medium.otf',
+                'NotoSansJP-VariableFont_wght.ttf',
+            ),
+            'bold': (
+                'NotoSansJP-Bold.ttf',
+                'NotoSansJP-Bold.otf',
+                'NotoSansJP-VariableFont_wght.ttf',
+            ),
+        },
+        'mincho': {
+            'normal': (
+                'NotoSerifJP-Regular.ttf',
+                'NotoSerifJP-Regular.otf',
+                'NotoSerifJP-VariableFont_wght.ttf',
+            ),
+            'medium': (
+                'NotoSerifJP-Medium.ttf',
+                'NotoSerifJP-Medium.otf',
+                'NotoSerifJP-VariableFont_wght.ttf',
+            ),
+            'bold': (
+                'NotoSerifJP-Bold.ttf',
+                'NotoSerifJP-Bold.otf',
+                'NotoSerifJP-VariableFont_wght.ttf',
+            ),
+        },
+    }
     _noto_font_dirs = (
         _project_root / 'fonts',
         _project_root / 'assets' / 'fonts',
@@ -50,10 +88,10 @@ class PDFRenderService:
     )
     VERTICAL_CHAR_MAP = {
         '|': '｜',
-        'ー': '｜',
-        'ｰ': '｜',
-        '―': '｜',
-        '—': '｜',
+        'ー': 'ー',
+        'ｰ': 'ー',
+        '―': 'ー',
+        '—': 'ー',
         '〜': '〜',
         '～': '〜',
         '、': '、',
@@ -77,52 +115,80 @@ class PDFRenderService:
         '"': '」',
         '!': '！',
     }
+    VERTICAL_GLYPH_PREFERRED: dict[str, str] = {
+        # Prefer vertical punctuation glyphs when font supports them.
+        '、': '︑',
+        '。': '︒',
+        '，': '︑',
+        '．': '︒',
+        '､': '︑',
+        '｡': '︒',
+        ',': '︑',
+        '.': '︒',
+        '｢': '「',
+        '｣': '」',
+        # Keep parenthesis shape stable in vertical mode.
+        '（': '︵',
+        '）': '︶',
+        '(': '︵',
+        ')': '︶',
+    }
     VERTICAL_DRAW_FALLBACK_MAP: dict[str, str] = {
-        '〝': '﹁',
-        '〟': '﹂',
+        '〝': '「',
+        '〟': '」',
         '︴': '〜',
         '︱': '｜',
+        '︑': '、',
+        '︒': '。',
+        '︵': '（',
+        '︶': '）',
     }
     # Fine-tune punctuation placement for vertical layout.
     # Offsets are relative to font size: (x_ratio, y_ratio).
     VERTICAL_PUNCT_OFFSET_MAP: dict[str, tuple[float, float]] = {
-        '、': (0.42, 0.42),
-        '。': (0.42, 0.42),
-        '，': (0.42, 0.42),
-        '．': (0.42, 0.42),
-        '､': (0.42, 0.42),
-        '｡': (0.42, 0.42),
-        ',': (0.42, 0.42),
-        '.': (0.42, 0.42),
-        '︑': (0.42, 0.42),
-        '︒': (0.42, 0.42),
-        '︐': (0.42, 0.42),
+        # Punctuation (push to right-bottom in the character box)
+        '、': (0.00, 0.00),
+        '。': (0.00, 0.00),
+        '，': (0.00, 0.00),
+        '．': (0.00, 0.00),
+        '､': (0.00, 0.00),
+        '｡': (0.00, 0.00),
+        ',': (0.00, 0.00),
+        '.': (0.00, 0.00),
+        '︑': (0.04, 0.02),
+        '︒': (0.04, 0.02),
         '！': (0.12, 0.12),
         '？': (0.12, 0.12),
         '!': (0.12, 0.12),
         '?': (0.12, 0.12),
-        '｜': (0.10, 0.0),
-        '︱': (0.10, 0.0),
+        # Prolonged sound mark / vertical bar
+        'ー': (0.12, -0.04),
+        'ｰ': (0.12, -0.04),
+        '―': (0.12, -0.04),
+        '—': (0.12, -0.04),
+        '｜': (0.12, -0.04),
+        '︱': (0.12, -0.04),
         '︴': (0.10, 0.08),
         '〝': (0.18, 0.08),
         '〟': (0.18, 0.08),
+        # Opening quote / parenthesis (slightly upper-left)
+        '「': (0.06, 0.02),
+        '『': (0.06, 0.02),
+        '（': (0.06, 0.02),
+        '(': (0.06, 0.02),
+        '︵': (0.06, 0.02),
+        # Closing quote / parenthesis (slightly lower-right)
         '」': (0.18, 0.06),
         '』': (0.18, 0.06),
         '）': (0.18, 0.06),
+        ')': (0.18, 0.06),
+        '︶': (0.18, 0.06),
         '】': (0.18, 0.06),
         '〉': (0.18, 0.06),
         '》': (0.18, 0.06),
         '〕': (0.18, 0.06),
         '］': (0.18, 0.06),
         '｝': (0.18, 0.06),
-        '︶': (0.18, 0.06),
-        '︺': (0.18, 0.06),
-        '︸': (0.18, 0.06),
-        '﹂': (0.18, 0.06),
-        '﹄': (0.18, 0.06),
-        '﹀': (0.18, 0.06),
-        '︾': (0.18, 0.06),
-        '︼': (0.18, 0.06),
     }
     FIXED_IMAGE_KEYS = {
         'main_image': 'main_image',
@@ -138,18 +204,27 @@ class PDFRenderService:
         'medium': 2,
         'bold': 3,
     }
+    # Keep vertical tweak logic switchable.
+    ENABLE_VERTICAL_TWEAKS = True
+    VERTICAL_ROTATE_CHARS = set('「」『』（）［］｛｝〈〉《》【】()[]{}<>ーｰ―—…')
+    _pillow_font_cache: dict[tuple[str, str, int], ImageFont.FreeTypeFont] = {}
+    _raqm_available: bool | None = None
 
     @classmethod
-    def _find_noto_font_path(cls, family: str) -> Path | None:
-        if family == 'mincho':
-            env_var = 'NOTO_SERIF_JP_FONT_PATH'
-            candidates = cls._noto_serif_font_candidates
-        else:
-            env_var = 'NOTO_SANS_JP_FONT_PATH'
-            candidates = cls._noto_sans_font_candidates
+    def _find_noto_font_path(cls, family: str, weight: str) -> Path | None:
+        normalized_family = 'mincho' if family == 'mincho' else 'gothic'
+        normalized_weight = weight if weight in {'normal', 'medium', 'bold'} else 'normal'
+        search_weights = [normalized_weight] if normalized_weight == 'normal' else [normalized_weight, 'normal']
 
-        env_path = os.getenv(env_var)
-        if env_path:
+        if normalized_family == 'mincho':
+            env_vars = ('NOTO_SERIF_JP_FONT_PATH', 'NOTO_SERIF_JP_BOLD_FONT_PATH')
+        else:
+            env_vars = ('NOTO_SANS_JP_FONT_PATH', 'NOTO_SANS_JP_BOLD_FONT_PATH')
+
+        for env_var in env_vars:
+            env_path = os.getenv(env_var)
+            if not env_path:
+                continue
             path = Path(env_path).expanduser()
             if path.exists():
                 return path
@@ -157,19 +232,33 @@ class PDFRenderService:
         for base_dir in cls._noto_font_dirs:
             if not base_dir.exists():
                 continue
-            for candidate in candidates:
-                direct_path = base_dir / candidate
-                if direct_path.exists():
-                    return direct_path
-                for nested_path in base_dir.rglob(candidate):
-                    if nested_path.exists():
-                        return nested_path
+            for search_weight in search_weights:
+                candidates = cls._noto_font_candidates[normalized_family][search_weight]
+                for candidate in candidates:
+                    direct_path = base_dir / candidate
+                    if direct_path.exists():
+                        return direct_path
+                    for nested_path in base_dir.rglob(candidate):
+                        if nested_path.exists():
+                            return nested_path
+                for family_token in cls._font_family_tokens[normalized_family]:
+                    for weight_token in cls._weight_tokens[search_weight]:
+                        pattern_ttf = f'*{family_token}*{weight_token}*.ttf'
+                        pattern_otf = f'*{family_token}*{weight_token}*.otf'
+                        for matched in base_dir.rglob(pattern_ttf):
+                            if matched.exists():
+                                return matched
+                        for matched in base_dir.rglob(pattern_otf):
+                            if matched.exists():
+                                return matched
         return None
 
     @classmethod
-    def _ensure_japanese_font(cls, family: str) -> str:
+    def _ensure_japanese_font(cls, family: str, weight: str = 'normal') -> str:
         normalized_family = 'mincho' if family == 'mincho' else 'gothic'
-        if normalized_family not in cls._registered_font_families:
+        normalized_weight = weight if weight in {'normal', 'medium', 'bold'} else 'normal'
+        font_key = (normalized_family, normalized_weight)
+        if font_key not in cls._registered_font_keys:
             if normalized_family == 'mincho':
                 font_name = cls.MINCHO_FONT_NAME
                 fallback_name = cls.FALLBACK_MINCHO_FONT_NAME
@@ -177,22 +266,34 @@ class PDFRenderService:
                 font_name = cls.GOTHIC_FONT_NAME
                 fallback_name = cls.FALLBACK_GOTHIC_FONT_NAME
 
-            noto_font_path = cls._find_noto_font_path(normalized_family)
+            weighted_font_name = f'{font_name}-{normalized_weight}'
+            noto_font_path = cls._find_noto_font_path(normalized_family, normalized_weight)
             try:
                 if noto_font_path:
-                    pdfmetrics.registerFont(TTFont(font_name, str(noto_font_path)))
-                    cls._active_font_names[normalized_family] = font_name
+                    pdfmetrics.registerFont(TTFont(weighted_font_name, str(noto_font_path)))
+                    cls._active_font_names[font_key] = weighted_font_name
                 else:
                     pdfmetrics.registerFont(UnicodeCIDFont(fallback_name))
-                    cls._active_font_names[normalized_family] = fallback_name
+                    cls._active_font_names[font_key] = fallback_name
             except (TTFError, OSError, KeyError, ValueError):
                 if normalized_family == 'mincho':
-                    # Keep PDF generation alive even when Mincho font cannot be loaded.
-                    return cls._ensure_japanese_font('gothic')
+                    # Keep mincho appearance when custom mincho font cannot be loaded.
+                    pdfmetrics.registerFont(UnicodeCIDFont(cls.FALLBACK_MINCHO_FONT_NAME))
+                    cls._active_font_names[font_key] = cls.FALLBACK_MINCHO_FONT_NAME
+                    cls._registered_font_keys.add(font_key)
+                    return cls._active_font_names[font_key]
                 pdfmetrics.registerFont(UnicodeCIDFont(cls.FALLBACK_GOTHIC_FONT_NAME))
-                cls._active_font_names[normalized_family] = cls.FALLBACK_GOTHIC_FONT_NAME
-            cls._registered_font_families.add(normalized_family)
-        return cls._active_font_names[normalized_family]
+                cls._active_font_names[font_key] = cls.FALLBACK_GOTHIC_FONT_NAME
+            cls._registered_font_keys.add(font_key)
+            if os.getenv('PDF_FONT_DEBUG', '').strip() in {'1', 'true', 'TRUE', 'yes', 'YES'}:
+                logger.info(
+                    'PDF font resolved family=%s weight=%s font=%s path=%s',
+                    normalized_family,
+                    normalized_weight,
+                    cls._active_font_names[font_key],
+                    str(noto_font_path) if noto_font_path else '(cid-fallback)',
+                )
+        return cls._active_font_names[font_key]
 
     @staticmethod
     def _read_template(project: Project, page: Page | None = None) -> PdfReader:
@@ -261,7 +362,13 @@ class PDFRenderService:
             if paragraph == '':
                 columns.append([])
                 continue
-            chars = [PDFRenderService.VERTICAL_CHAR_MAP.get(ch, ch) for ch in paragraph]
+            chars = [
+                PDFRenderService.VERTICAL_GLYPH_PREFERRED.get(
+                    ch,
+                    PDFRenderService.VERTICAL_CHAR_MAP.get(ch, ch),
+                )
+                for ch in paragraph
+            ]
             for index in range(0, len(chars), max_chars_per_column):
                 columns.append(chars[index:index + max_chars_per_column])
             # Keep paragraph breaks visible as a column gap.
@@ -278,9 +385,11 @@ class PDFRenderService:
         y: float,
         ch: str,
     ) -> None:
+        safe_basic = cls.VERTICAL_CHAR_MAP.get(ch, ch)
         candidates = [
             ch,
             cls.VERTICAL_DRAW_FALLBACK_MAP.get(ch, ''),
+            safe_basic,
             '□',
         ]
         seen: set[str] = set()
@@ -306,10 +415,10 @@ class PDFRenderService:
         text_width: float,
         text_height: float,
         column_gap: float,
+        char_step: float,
         page_height: float,
     ):
         # Draw Japanese vertical text from top-right, then move columns leftward.
-        char_step = max(font_size, font_size * 1.1)
         available_height = max(1.0, text_height)
         max_chars_per_column = max(1, int(available_height // char_step))
         max_columns = max(1, int(text_width // column_gap))
@@ -325,13 +434,237 @@ class PDFRenderService:
                 baseline_y = page_height - top_y - font_size - (row_index * char_step)
                 if baseline_y < page_height - (top_y + text_height):
                     break
-                offset_x_ratio, offset_y_ratio = cls.VERTICAL_PUNCT_OFFSET_MAP.get(ch, (0.0, 0.0))
+                if cls.ENABLE_VERTICAL_TWEAKS:
+                    offset_x_ratio, offset_y_ratio = cls.VERTICAL_PUNCT_OFFSET_MAP.get(ch, (0.0, 0.0))
+                else:
+                    offset_x_ratio, offset_y_ratio = (0.0, 0.0)
                 cls._draw_vertical_char_safe(
                     draw_canvas,
                     column_x + (font_size * offset_x_ratio),
                     baseline_y + (font_size * offset_y_ratio),
                     ch,
                 )
+
+    @classmethod
+    def _load_pillow_font(
+        cls,
+        family: str,
+        weight: str,
+        font_size_pt: float,
+        dpi: int,
+    ) -> ImageFont.FreeTypeFont | None:
+        normalized_family = 'mincho' if family == 'mincho' else 'gothic'
+        normalized_weight = weight if weight in {'normal', 'medium', 'bold'} else 'normal'
+        font_path = cls._find_noto_font_path(normalized_family, normalized_weight)
+        if not font_path:
+            font_path = cls._find_noto_font_path(normalized_family, 'normal')
+        if not font_path:
+            return None
+
+        font_px = max(1, int(round(font_size_pt * dpi / 72)))
+        cache_key = (str(font_path), normalized_weight, font_px)
+        cached = cls._pillow_font_cache.get(cache_key)
+        if cached:
+            return cached
+        try:
+            if cls._is_raqm_available():
+                layout_enum = getattr(ImageFont, 'Layout', None)
+                if layout_enum is not None and hasattr(layout_enum, 'RAQM'):
+                    pillow_font = ImageFont.truetype(
+                        str(font_path),
+                        font_px,
+                        layout_engine=layout_enum.RAQM,
+                    )
+                elif hasattr(ImageFont, 'LAYOUT_RAQM'):
+                    pillow_font = ImageFont.truetype(
+                        str(font_path),
+                        font_px,
+                        layout_engine=ImageFont.LAYOUT_RAQM,
+                    )
+                else:
+                    pillow_font = ImageFont.truetype(str(font_path), font_px)
+            else:
+                pillow_font = ImageFont.truetype(str(font_path), font_px)
+        except OSError:
+            return None
+        cls._pillow_font_cache[cache_key] = pillow_font
+        return pillow_font
+
+    @classmethod
+    def _is_raqm_available(cls) -> bool:
+        if cls._raqm_available is not None:
+            return cls._raqm_available
+        try:
+            cls._raqm_available = bool(features.check_feature('raqm'))
+        except Exception:
+            cls._raqm_available = False
+        return cls._raqm_available
+
+    @classmethod
+    def _draw_vertical_char_pillow_safe(
+        cls,
+        image: Image.Image,
+        draw: ImageDraw.ImageDraw,
+        x_px: int,
+        y_px: int,
+        cell_size_px: int,
+        ch: str,
+        pillow_font: ImageFont.FreeTypeFont,
+    ) -> None:
+        safe_basic = cls.VERTICAL_CHAR_MAP.get(ch, ch)
+        candidates = [
+            ch,
+            cls.VERTICAL_DRAW_FALLBACK_MAP.get(ch, ''),
+            safe_basic,
+            '□',
+        ]
+        seen: set[str] = set()
+        rotate_char = ch in cls.VERTICAL_ROTATE_CHARS
+        for candidate in candidates:
+            if not candidate or candidate in seen:
+                continue
+            seen.add(candidate)
+            try:
+                if rotate_char:
+                    bbox = pillow_font.getbbox(candidate)
+                    w = max(1, int(bbox[2] - bbox[0]))
+                    h = max(1, int(bbox[3] - bbox[1]))
+                    pad = 4
+                    glyph = Image.new('RGBA', (w + (pad * 2), h + (pad * 2)), (0, 0, 0, 0))
+                    glyph_draw = ImageDraw.Draw(glyph)
+                    glyph_draw.text(
+                        (pad - int(bbox[0]), pad - int(bbox[1])),
+                        candidate,
+                        fill=(0, 0, 0, 255),
+                        font=pillow_font,
+                    )
+                    rotated = glyph.rotate(90, expand=True, resample=Image.Resampling.BICUBIC)
+                    cell = Image.new('RGBA', (cell_size_px, cell_size_px), (0, 0, 0, 0))
+                    paste_x = (cell_size_px - rotated.width) // 2
+                    paste_y = (cell_size_px - rotated.height) // 2
+                    cell.alpha_composite(rotated, (paste_x, paste_y))
+                    image.alpha_composite(cell, (x_px, y_px))
+                else:
+                    bbox = pillow_font.getbbox(candidate)
+                    w = max(1, int(bbox[2] - bbox[0]))
+                    h = max(1, int(bbox[3] - bbox[1]))
+                    cell = Image.new('RGBA', (cell_size_px, cell_size_px), (0, 0, 0, 0))
+                    cell_draw = ImageDraw.Draw(cell)
+                    text_x = (cell_size_px - w) // 2 - int(bbox[0])
+                    text_y = (cell_size_px - h) // 2 - int(bbox[1])
+                    cell_draw.text((text_x, text_y), candidate, fill=(0, 0, 0, 255), font=pillow_font)
+                    image.alpha_composite(cell, (x_px, y_px))
+                return
+            except Exception:
+                continue
+
+    @classmethod
+    def _render_vertical_text_image_bytes(
+        cls,
+        text: str,
+        font_family: str,
+        font_weight: str,
+        font_size: float,
+        text_width: float,
+        text_height: float,
+        column_gap: float,
+        char_step: float,
+        output_profile: OutputProfile,
+    ) -> bytes | None:
+        # Render vertical glyphs on transparent bitmap, then place that bitmap onto PDF.
+        dpi = max(180, cls.IMAGE_PROFILE_SETTINGS[output_profile]['dpi'])
+        scale = dpi / 72.0
+        img_w = max(1, int(round(text_width * scale)))
+        img_h = max(1, int(round(text_height * scale)))
+        char_step_px = max(1, int(round(char_step * scale)))
+        font_size_px = max(1, int(round(font_size * scale)))
+
+        pillow_font = cls._load_pillow_font(font_family, font_weight, font_size, dpi)
+        if not pillow_font:
+            return None
+
+        max_chars_per_column = max(1, int(max(1.0, text_height) // char_step))
+        max_columns = max(1, int(max(1.0, text_width) // column_gap))
+        columns = cls._wrap_text_to_vertical_columns(text, max_chars_per_column)
+
+        image = Image.new('RGBA', (img_w, img_h), (0, 0, 0, 0))
+        draw = ImageDraw.Draw(image)
+
+        if cls._is_raqm_available() and not cls.ENABLE_VERTICAL_TWEAKS:
+            for column_index, chars in enumerate(columns):
+                if column_index >= max_columns:
+                    break
+                if not chars:
+                    continue
+                column_x_pt = text_width - font_size - (column_index * column_gap)
+                if column_x_pt < 0:
+                    break
+                column_x_px = int(round(column_x_pt * scale))
+                text_column = ''.join(chars)
+                try:
+                    draw.text(
+                        (column_x_px, 0),
+                        text_column,
+                        fill=(0, 0, 0, 255),
+                        font=pillow_font,
+                        direction='ttb',
+                        language='ja',
+                    )
+                except Exception:
+                    # Fall back to manual drawing for this column.
+                    for row_index, ch in enumerate(chars):
+                        row_y_pt = row_index * char_step
+                        if row_y_pt + font_size > text_height:
+                            break
+                        if cls.ENABLE_VERTICAL_TWEAKS:
+                            offset_x_ratio, offset_y_ratio = cls.VERTICAL_PUNCT_OFFSET_MAP.get(ch, (0.0, 0.0))
+                        else:
+                            offset_x_ratio, offset_y_ratio = (0.0, 0.0)
+                        x_px = column_x_px + int(round(font_size_px * offset_x_ratio))
+                        y_px = (row_index * char_step_px) + int(round(font_size_px * offset_y_ratio))
+                        cls._draw_vertical_char_pillow_safe(
+                            image=image,
+                            draw=draw,
+                            x_px=x_px,
+                            y_px=y_px,
+                            cell_size_px=font_size_px,
+                            ch=ch,
+                            pillow_font=pillow_font,
+                        )
+            png_buffer = io.BytesIO()
+            image.save(png_buffer, format='PNG', optimize=True)
+            return png_buffer.getvalue()
+
+        for column_index, chars in enumerate(columns):
+            if column_index >= max_columns:
+                break
+            column_x_pt = text_width - font_size - (column_index * column_gap)
+            if column_x_pt < 0:
+                break
+            column_x_px = int(round(column_x_pt * scale))
+            for row_index, ch in enumerate(chars):
+                row_y_pt = row_index * char_step
+                if row_y_pt + font_size > text_height:
+                    break
+                if cls.ENABLE_VERTICAL_TWEAKS:
+                    offset_x_ratio, offset_y_ratio = cls.VERTICAL_PUNCT_OFFSET_MAP.get(ch, (0.0, 0.0))
+                else:
+                    offset_x_ratio, offset_y_ratio = (0.0, 0.0)
+                x_px = column_x_px + int(round(font_size_px * offset_x_ratio))
+                y_px = (row_index * char_step_px) + int(round(font_size_px * offset_y_ratio))
+                cls._draw_vertical_char_pillow_safe(
+                    image=image,
+                    draw=draw,
+                    x_px=x_px,
+                    y_px=y_px,
+                    cell_size_px=font_size_px,
+                    ch=ch,
+                    pillow_font=pillow_font,
+                )
+
+        png_buffer = io.BytesIO()
+        image.save(png_buffer, format='PNG', optimize=True)
+        return png_buffer.getvalue()
 
     @staticmethod
     def _normalize_hex_color(raw_color: str) -> str:
@@ -362,10 +695,16 @@ class PDFRenderService:
         level = cls.HORIZONTAL_FONT_WEIGHTS.get(weight, 1)
         if level <= 1:
             return [(0.0, 0.0)]
-        base = max(0.18, font_size * 0.02)
+        base = max(0.35, font_size * 0.04)
         if level == 2:
-            return [(0.0, 0.0), (base, 0.0)]
-        return [(0.0, 0.0), (base, 0.0), (0.0, base)]
+            return [(0.0, 0.0), (base, 0.0), (0.0, base * 0.35)]
+        return [
+            (0.0, 0.0),
+            (base, 0.0),
+            (-base * 0.55, 0.0),
+            (0.0, base * 0.55),
+            (base * 0.25, base * 0.55),
+        ]
 
     @classmethod
     def _draw_horizontal_line(
@@ -397,33 +736,70 @@ class PDFRenderService:
             if not value:
                 continue
             font_family = str(pos.get('font_family', 'gothic')).lower()
-            font_name = cls._ensure_japanese_font(font_family)
+            writing_mode = str(pos.get('writing_mode', 'horizontal')).lower()
+            font_weight = 'normal'
+            if writing_mode == 'horizontal':
+                font_weight = str(pos.get('horizontal_font_weight', 'normal')).strip().lower()
+            font_name = cls._ensure_japanese_font(font_family, font_weight)
             font_size = float(pos.get('font_size', 12))
             x, top_y, text_width, text_height, line_height = cls._normalize_text_box(pos, page_width, page_height, font_size)
             try:
                 draw_canvas.setFont(font_name, font_size)
             except Exception:
-                fallback_font_name = cls._ensure_japanese_font('gothic')
+                fallback_font_name = cls._ensure_japanese_font('gothic', font_weight)
                 draw_canvas.setFont(fallback_font_name, font_size)
                 font_name = fallback_font_name
-            writing_mode = str(pos.get('writing_mode', 'horizontal')).lower()
-            if writing_mode == 'vertical':
-                if output_profile == 'print':
-                    draw_canvas.setFillColorCMYK(0, 0, 0, 1)
-                else:
-                    draw_canvas.setFillColorRGB(0, 0, 0)
-                cls._draw_vertical_text(
-                    draw_canvas,
-                    str(value),
+            if os.getenv('PDF_FONT_DEBUG', '').strip() in {'1', 'true', 'TRUE', 'yes', 'YES'}:
+                logger.info(
+                    'PDF draw font key=%s writing_mode=%s font=%s size=%s',
+                    key,
+                    writing_mode,
                     font_name,
                     font_size,
-                    x,
-                    top_y,
-                    text_width,
-                    text_height,
-                    line_height,
-                    page_height,
                 )
+            if writing_mode == 'vertical':
+                vertical_char_step = max(font_size * 0.8, float(pos.get('vertical_char_step', font_size)))
+                vertical_png = cls._render_vertical_text_image_bytes(
+                    text=str(value),
+                    font_family=font_family,
+                    font_weight='normal',
+                    font_size=font_size,
+                    text_width=text_width,
+                    text_height=text_height,
+                    column_gap=line_height,
+                    char_step=vertical_char_step,
+                    output_profile=output_profile,
+                )
+                if vertical_png:
+                    image = ImageReader(io.BytesIO(vertical_png))
+                    draw_canvas.drawImage(
+                        image,
+                        x,
+                        page_height - top_y - text_height,
+                        width=text_width,
+                        height=text_height,
+                        preserveAspectRatio=False,
+                        anchor='sw',
+                        mask='auto',
+                    )
+                else:
+                    if output_profile == 'print':
+                        draw_canvas.setFillColorCMYK(0, 0, 0, 1)
+                    else:
+                        draw_canvas.setFillColorRGB(0, 0, 0)
+                    cls._draw_vertical_text(
+                        draw_canvas,
+                        str(value),
+                        font_name,
+                        font_size,
+                        x,
+                        top_y,
+                        text_width,
+                        text_height,
+                        line_height,
+                        vertical_char_step,
+                        page_height,
+                    )
                 continue
             horizontal_color = cls._normalize_hex_color(str(pos.get('horizontal_text_color', '#000000')))
             if output_profile == 'print' and horizontal_color == '#000000':
@@ -482,6 +858,11 @@ class PDFRenderService:
 
         with Image.open(io.BytesIO(image_bytes)) as src_image:
             image = ImageOps.exif_transpose(src_image)
+            image = cls._crop_height_for_box_width(
+                image,
+                target_max_width_px,
+                target_max_height_px,
+            )
             if image.width > target_max_width_px or image.height > target_max_height_px:
                 image.thumbnail((target_max_width_px, target_max_height_px), Image.Resampling.LANCZOS)
 
@@ -505,7 +886,16 @@ class PDFRenderService:
                     progressive=False,
                 )
             elif has_alpha:
-                image.save(output, format='PNG', optimize=True)
+                rgba = image.convert('RGBA')
+                flattened = Image.new('RGB', rgba.size, (255, 255, 255))
+                flattened.paste(rgba, mask=rgba.split()[-1])
+                flattened.save(
+                    output,
+                    format='JPEG',
+                    quality=settings['jpeg_quality'],
+                    optimize=True,
+                    progressive=True,
+                )
             else:
                 image.convert('RGB').save(
                     output,
@@ -515,6 +905,25 @@ class PDFRenderService:
                     progressive=True,
                 )
         return output.getvalue()
+
+    @staticmethod
+    def _crop_height_for_box_width(
+        image: Image.Image,
+        box_width_px: int,
+        box_height_px: int,
+    ) -> Image.Image:
+        if box_width_px <= 0 or box_height_px <= 0 or image.width <= 0 or image.height <= 0:
+            return image
+
+        required_height = image.width * box_height_px / box_width_px
+        if image.height <= required_height:
+            return image
+
+        top = int(round((image.height - required_height) / 2))
+        cropped_height = max(1, int(round(required_height)))
+        bottom = min(image.height, top + cropped_height)
+        top = max(0, bottom - cropped_height)
+        return image.crop((0, top, image.width, bottom))
 
     @classmethod
     def _draw_image(
@@ -562,7 +971,7 @@ class PDFRenderService:
         positions = template_positions or project.default_positions or DEFAULT_POSITIONS
 
         overlay_buffer = io.BytesIO()
-        draw_canvas = canvas.Canvas(overlay_buffer, pagesize=(width, height))
+        draw_canvas = canvas.Canvas(overlay_buffer, pagesize=(width, height), pageCompression=1)
         cls._draw_text(draw_canvas, page.input_data or {}, positions, width, height, output_profile)
         cls._draw_images(draw_canvas, page, positions, width, height, output_profile)
         draw_canvas.save()

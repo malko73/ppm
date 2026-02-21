@@ -7,7 +7,7 @@ env = environ.Env(
     DEBUG=(bool, True),
     USE_S3=(bool, False),
     APP_NAME=(str, 'MACKs'),
-    APP_VERSION=(str, '1.0.2'),
+    APP_VERSION=(str, '1.0.8'),
 )
 environ.Env.read_env(BASE_DIR / '.env')
 
