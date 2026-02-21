@@ -41,6 +41,17 @@
                             {% endif %}
                         </div>
                         <div class="col-md-6">
+                            {{ form.replace_template_target.label_tag }}
+                            {{ form.replace_template_target }}
+                        </div>
+                        <div class="col-md-6">
+                            {{ form.replace_template_file.label_tag }}
+                            {{ form.replace_template_file }}
+                            {% if form.replace_template_file.help_text %}
+                            <div class="form-text">{{ form.replace_template_file.help_text }}</div>
+                            {% endif %}
+                        </div>
+                        <div class="col-md-6">
                             {{ form.layout_target.label_tag }}
                             {{ form.layout_target }}
                             <div class="form-text">ここで選んだテンプレートのレイアウト（テキスト/画像配置）を編集します。</div>

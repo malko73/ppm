@@ -67,6 +67,12 @@ class ProjectForm(forms.ModelForm):
         label='テンプレートPDF',
         help_text='複数選択でまとめて登録できます（各100MB以下）。',
     )
+    replace_template_target = forms.ChoiceField(required=False, label='差し替え対象テンプレート')
+    replace_template_file = forms.FileField(
+        required=False,
+        label='差し替えPDF',
+        help_text='選択した登録済みテンプレートを新しいPDFで差し替えます。',
+    )
 
     class Meta:
         model = Project
@@ -86,12 +92,18 @@ class ProjectForm(forms.ModelForm):
         else:
             self.fields.pop('participants', None)
         self.existing_templates = []
-        template_choices = [('__project__', '共通（全体既定）')]
+        template_choices = [('__project__', '基本サンプル')]
+        replace_choices = [('', '選択してください')]
         if getattr(self.instance, 'pk', None):
             self.existing_templates = list(self.instance.templates.order_by('-is_default', 'id'))
             for template in self.existing_templates:
                 template_choices.append((str(template.id), template.name))
+                replace_choices.append((str(template.id), template.name))
         self.fields['layout_target'].choices = template_choices
+        self.fields['replace_template_target'].choices = replace_choices
+        if not self.existing_templates:
+            self.fields['replace_template_target'].disabled = True
+            self.fields['replace_template_file'].disabled = True
         if self.layout_target:
             selected_target = self.layout_target
         else:
@@ -237,6 +249,26 @@ class ProjectForm(forms.ModelForm):
         cleaned_data['_image_rows'] = image_rows
         cleaned_data['_template_files'] = uploaded_templates
         cleaned_data['_layout_target'] = cleaned_data.get('layout_target') or '__project__'
+
+        replace_target_raw = str(cleaned_data.get('replace_template_target') or '').strip()
+        replace_template_file = cleaned_data.get('replace_template_file')
+        if replace_target_raw and not replace_template_file:
+            raise ValidationError('テンプレートを差し替える場合は、差し替えPDFを選択してください。')
+        if replace_template_file and not replace_target_raw:
+            raise ValidationError('テンプレートを差し替える場合は、差し替え対象テンプレートを選択してください。')
+
+        replace_target_template = None
+        if replace_target_raw:
+            if not self.instance.pk:
+                raise ValidationError('テンプレートの差し替えは、作成済みプロジェクトでのみ利用できます。')
+            if not replace_target_raw.isdigit():
+                raise ValidationError('差し替え対象テンプレートが不正です。')
+            replace_target_template = self.instance.templates.filter(pk=int(replace_target_raw)).first()
+            if not replace_target_template:
+                raise ValidationError('差し替え対象テンプレートが見つかりません。')
+            validate_pdf(replace_template_file)
+        cleaned_data['_replace_target_template'] = replace_target_template
+        cleaned_data['_replace_template_file'] = replace_template_file
         return cleaned_data
 
     def save(self, commit=True):
@@ -292,6 +324,14 @@ class ProjectForm(forms.ModelForm):
                 )
                 if not instance.template_file:
                     instance.template_file = template.template_file
+                    instance.save(update_fields=['template_file', 'updated_at'])
+            replace_target_template = self.cleaned_data.get('_replace_target_template')
+            replace_template_file = self.cleaned_data.get('_replace_template_file')
+            if replace_target_template and replace_template_file:
+                replace_target_template.template_file = replace_template_file
+                replace_target_template.save(update_fields=['template_file', 'updated_at'])
+                if replace_target_template.is_default or not instance.template_file:
+                    instance.template_file = replace_target_template.template_file
                     instance.save(update_fields=['template_file', 'updated_at'])
         return instance
 
