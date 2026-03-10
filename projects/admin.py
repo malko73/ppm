@@ -2,13 +2,20 @@ from django.contrib import admin
 
 from .models import Page, PageImage, Project, ProjectTemplate
 
+HAS_PROJECT_CATEGORY_FIELD = any(field.name == 'category' for field in Project._meta.get_fields())
+
 
 @admin.register(Project)
 class ProjectAdmin(admin.ModelAdmin):
-    list_display = ('title', 'category', 'user', 'updated_at')
-    search_fields = ('title', 'category', 'user__email')
-    list_filter = ('category',)
+    list_display = ('title', 'user', 'updated_at')
+    search_fields = ('title', 'user__email')
+    list_filter = ()
     filter_horizontal = ('participants',)
+
+    if HAS_PROJECT_CATEGORY_FIELD:
+        list_display = ('title', 'category', 'user', 'updated_at')
+        search_fields = ('title', 'category', 'user__email')
+        list_filter = ('category',)
 
 
 @admin.register(Page)

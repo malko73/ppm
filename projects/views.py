@@ -34,6 +34,10 @@ def _user_project_qs(user):
     )
 
 
+def _project_category(project: Project) -> str:
+    return str(getattr(project, 'category', '') or '').strip()
+
+
 def _ensure_project_templates(project: Project) -> None:
     if project.templates.exists() or not project.template_file:
         return
@@ -101,7 +105,7 @@ class ProjectListView(UserProjectMixin, ListView):
 
         grouped: dict[str, list[Project]] = {}
         for project in projects:
-            category = (project.category or '').strip() or '未分類'
+            category = _project_category(project) or '未分類'
             grouped.setdefault(category, []).append(project)
 
         group_names = sorted(name for name in grouped.keys() if name != '未分類')
@@ -185,14 +189,16 @@ class ProjectDeleteView(UserProjectMixin, DeleteView):
 def copy_project(request, pk: int):
     source_project = get_object_or_404(_user_project_qs(request.user), pk=pk)
 
-    copied_project = Project.objects.create(
+    create_kwargs = dict(
         user=request.user,
         title=f'{source_project.title} (コピー)',
-        category=source_project.category,
         description=source_project.description,
         template_file=source_project.template_file,
         default_positions=copy.deepcopy(source_project.default_positions or {}),
     )
+    if any(field.name == 'category' for field in Project._meta.get_fields()):
+        create_kwargs['category'] = _project_category(source_project)
+    copied_project = Project.objects.create(**create_kwargs)
     source_templates = list(source_project.templates.order_by('-is_default', 'id'))
     if source_templates:
         copied_templates = []

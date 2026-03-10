@@ -14,6 +14,7 @@ FIXED_IMAGE_KEYS = {'main_image', 'sub_image1', 'sub_image2'}
 VALID_HEX_COLOR_RE = re.compile(r'^#[0-9a-fA-F]{6}$')
 HORIZONTAL_FONT_WEIGHTS = {'normal', 'medium', 'bold'}
 HORIZONTAL_TEXT_ALIGNS = {'left', 'center', 'right'}
+HAS_PROJECT_CATEGORY_FIELD = any(field.name == 'category' for field in Project._meta.get_fields())
 
 
 class MultipleFileInput(forms.ClearableFileInput):
@@ -83,9 +84,8 @@ class ProjectForm(forms.ModelForm):
 
     class Meta:
         model = Project
-        fields = ['title', 'category', 'description']
+        fields = ['title', 'description']
         widgets = {
-            'category': forms.TextInput(attrs={'placeholder': '例: グルメ, 観光'}),
             'description': forms.Textarea(attrs={'rows': 3}),
         }
 
@@ -110,6 +110,13 @@ class ProjectForm(forms.ModelForm):
         self.fields['replace_template_target'].choices = replace_choices
         self.fields['default_template_target'].choices = default_choices
         self.fields['delete_template_target'].choices = delete_choices
+        if HAS_PROJECT_CATEGORY_FIELD:
+            self.fields['category'] = forms.CharField(
+                required=False,
+                label='カテゴリ',
+                initial=getattr(self.instance, 'category', ''),
+                widget=forms.TextInput(attrs={'placeholder': '例: グルメ, 観光'}),
+            )
         if not self.existing_templates:
             self.fields['replace_template_target'].disabled = True
             self.fields['replace_template_file'].disabled = True
@@ -174,6 +181,15 @@ class ProjectForm(forms.ModelForm):
             if isinstance(field.widget, forms.HiddenInput):
                 continue
             field.widget.attrs['class'] = 'form-control'
+
+    def save(self, commit=True):
+        instance = super().save(commit=False)
+        if HAS_PROJECT_CATEGORY_FIELD and 'category' in self.cleaned_data:
+            instance.category = self.cleaned_data['category']
+        if commit:
+            instance.save()
+            self.save_m2m()
+        return instance
 
     @staticmethod
     def _as_float(raw_value: Any, field_name: str, min_value: float) -> float:

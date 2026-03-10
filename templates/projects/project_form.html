@@ -33,10 +33,12 @@
                             {{ form.title.label_tag }}
                             {{ form.title }}
                         </div>
+                        {% if form.category %}
                         <div class="col-md-6">
                             {{ form.category.label_tag }}
                             {{ form.category }}
                         </div>
+                        {% endif %}
                         <div class="col-md-6">
                             {{ form.template_files.label_tag }}
                             {{ form.template_files }}
