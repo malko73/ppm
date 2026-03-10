@@ -1,15 +1,16 @@
 import copy
 import csv
 import json
-from io import StringIO
+import uuid
 from urllib.parse import quote
 
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.mixins import LoginRequiredMixin
-from django.core.files.uploadedfile import UploadedFile
+from django.core.cache import cache
+from django.db import transaction
 from django.db.models import Q
-from django.http import Http404, HttpResponse, HttpResponseBadRequest
+from django.http import Http404, HttpResponse, HttpResponseBadRequest, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils.text import slugify
 from django.urls import reverse, reverse_lazy
@@ -18,7 +19,19 @@ from django.views.generic import CreateView, DeleteView, DetailView, ListView, U
 
 from .forms import PageForm, ProjectForm
 from .models import Page, Project, ProjectTemplate
+from .services.csv_import import CSVImportError, CSVImportService
 from .services.pdf_renderer import PDFRenderService
+from .tasks import build_pages_zip
+
+
+def _user_project_qs(user):
+    """ログインユーザーがアクセス可能なプロジェクトのクエリセットを返す。"""
+    return (
+        Project.objects.select_related('user')
+        .prefetch_related('templates', 'participants')
+        .filter(Q(user=user) | Q(participants=user))
+        .distinct()
+    )
 
 
 def _ensure_project_templates(project: Project) -> None:
@@ -71,25 +84,11 @@ def _resolve_project_template(
     return project.get_default_template()
 
 
-def _validate_project_csv_upload(uploaded_file: UploadedFile | None) -> UploadedFile:
-    if not uploaded_file:
-        raise ValueError('CSVファイルを選択してください。')
-    filename = (uploaded_file.name or '').lower()
-    content_type = (uploaded_file.content_type or '').lower()
-    if content_type.startswith('image/'):
-        raise ValueError('画像ファイルはアップロードできません。CSVファイルを指定してください。')
-    if not filename.endswith('.csv'):
-        raise ValueError('CSVファイル（.csv）のみアップロードできます。')
-    return uploaded_file
-
-
 class UserProjectMixin(LoginRequiredMixin):
     model = Project
 
     def get_queryset(self):
-        return Project.objects.filter(
-            Q(user=self.request.user) | Q(participants=self.request.user)
-        ).distinct()
+        return _user_project_qs(self.request.user)
 
 
 class ProjectListView(UserProjectMixin, ListView):
@@ -184,10 +183,7 @@ class ProjectDeleteView(UserProjectMixin, DeleteView):
 @require_POST
 @login_required
 def copy_project(request, pk: int):
-    source_project = get_object_or_404(
-        Project.objects.filter(Q(user=request.user) | Q(participants=request.user)).distinct(),
-        pk=pk,
-    )
+    source_project = get_object_or_404(_user_project_qs(request.user), pk=pk)
 
     copied_project = Project.objects.create(
         user=request.user,
@@ -237,7 +233,7 @@ class UserPageMixin(LoginRequiredMixin):
 
     def dispatch(self, request, *args, **kwargs):
         self.project = get_object_or_404(
-            Project.objects.filter(Q(user=request.user) | Q(participants=request.user)).distinct(),
+            _user_project_qs(request.user),
             pk=self.kwargs['project_id'],
         )
         _ensure_project_templates(self.project)
@@ -322,10 +318,7 @@ class PageDeleteView(UserPageMixin, DeleteView):
 @require_POST
 @login_required
 def toggle_page_finalized(request, project_id: int, pk: int):
-    project = get_object_or_404(
-        Project.objects.filter(Q(user=request.user) | Q(participants=request.user)).distinct(),
-        pk=project_id,
-    )
+    project = get_object_or_404(_user_project_qs(request.user), pk=project_id)
     page = get_object_or_404(Page, pk=pk, project=project)
     page.is_finalized = not page.is_finalized
     page.save(update_fields=['is_finalized', 'updated_at'])
@@ -337,10 +330,8 @@ def toggle_page_finalized(request, project_id: int, pk: int):
 @require_POST
 @login_required
 def reorder_pages(request, project_id: int):
-    project = get_object_or_404(
-        Project.objects.filter(Q(user=request.user) | Q(participants=request.user)).distinct(),
-        pk=project_id,
-    )
+    project = get_object_or_404(_user_project_qs(request.user), pk=project_id)
+
     order_ids = request.POST.get('order')
     if order_ids:
         order_ids = [id_.strip() for id_ in order_ids.split(',') if id_.strip()]
@@ -351,14 +342,22 @@ def reorder_pages(request, project_id: int):
         except (json.JSONDecodeError, KeyError):
             return HttpResponseBadRequest('Invalid payload')
 
-    page_map = {page.id: page for page in project.pages.all()}
-    for index, page_id in enumerate(order_ids, start=1):
-        page = page_map.get(int(page_id))
-        if not page:
+    with transaction.atomic():
+        page_map = {page.id: page for page in project.pages.select_for_update()}
+
+        # 存在しないページIDが含まれていれば先に検出する
+        missing = [pid for pid in order_ids if page_map.get(int(pid)) is None]
+        if missing:
             raise Http404('Page not found')
-        page.order = index
-        page.page_number = index
-        page.save(update_fields=['order', 'page_number'])
+
+        updates: list[Page] = []
+        for index, page_id in enumerate(order_ids, start=1):
+            page = page_map[int(page_id)]
+            page.order = index
+            page.page_number = index
+            updates.append(page)
+
+        Page.objects.bulk_update(updates, ['order', 'page_number'])
 
     pages = project.pages.order_by('order', 'id')
     return render(request, 'partials/page_list.html', {'project': project, 'pages': pages})
@@ -366,10 +365,7 @@ def reorder_pages(request, project_id: int):
 
 @login_required
 def download_single_page_pdf(request, project_id: int, pk: int):
-    project = get_object_or_404(
-        Project.objects.filter(Q(user=request.user) | Q(participants=request.user)).distinct(),
-        pk=project_id,
-    )
+    project = get_object_or_404(_user_project_qs(request.user), pk=project_id)
     page = get_object_or_404(Page, pk=pk, project=project)
     pdf_bytes = PDFRenderService.render_single_page_bytes(project, page, output_profile='preview')
     response = HttpResponse(pdf_bytes, content_type='application/pdf')
@@ -383,11 +379,8 @@ def download_single_page_pdf(request, project_id: int, pk: int):
 
 @login_required
 def download_merged_pdf(request, project_id: int):
-    project = get_object_or_404(
-        Project.objects.filter(Q(user=request.user) | Q(participants=request.user)).distinct(),
-        pk=project_id,
-    )
-    pages = project.pages.order_by('order', 'id')
+    project = get_object_or_404(_user_project_qs(request.user), pk=project_id)
+    pages = project.pages.prefetch_related('images').order_by('order', 'id')
     if not pages.exists():
         return redirect('project_detail', pk=project.pk)
     pdf_bytes = PDFRenderService.merge_pages_bytes(project, pages, output_profile='preview')
@@ -396,30 +389,85 @@ def download_merged_pdf(request, project_id: int):
     return response
 
 
+# ---------------------------------------------------------------------------
+# ZIPダウンロード（Celery非同期）
+# ---------------------------------------------------------------------------
+
+def _zip_cache_key(project_id: int, token: str) -> str:
+    return f'project_zip_{project_id}_{token}'
+
+
 @login_required
-def download_pages_zip(request, project_id: int):
-    project = get_object_or_404(
-        Project.objects.filter(Q(user=request.user) | Q(participants=request.user)).distinct(),
-        pk=project_id,
-    )
-    pages = project.pages.order_by('order', 'id')
+def start_pages_zip(request, project_id: int):
+    """Celeryタスクを起動してZIP生成を開始し、待機ページへリダイレクトする。"""
+    project = get_object_or_404(_user_project_qs(request.user), pk=project_id)
+    pages = project.pages.only('is_finalized')
+
     if not pages.exists():
         return redirect('project_detail', pk=project.pk)
     if pages.filter(is_finalized=False).exists():
         messages.error(request, '全ページを校了（ON）にするとZIPをダウンロードできます。')
         return redirect('project_detail', pk=project.pk)
-    zip_bytes = PDFRenderService.zip_pages_bytes(project, pages)
+
+    token = uuid.uuid4().hex
+    cache_key = _zip_cache_key(project_id, token)
+    request.session[f'zip_token_{project_id}'] = token
+
+    build_pages_zip.delay(project_id, cache_key)
+
+    return redirect(reverse('project_pdf_zip_pending', kwargs={'project_id': project_id}))
+
+
+@login_required
+def download_pending_zip(request, project_id: int):
+    """ZIP生成待機ページ。完了したらダウンロードリンクを表示する。"""
+    project = get_object_or_404(_user_project_qs(request.user), pk=project_id)
+    return render(request, 'projects/download_pending.html', {'project': project})
+
+
+@login_required
+def poll_pages_zip(request, project_id: int):
+    """ZIP生成状況をJSONで返すポーリングエンドポイント。"""
+    get_object_or_404(_user_project_qs(request.user), pk=project_id)
+
+    token = request.session.get(f'zip_token_{project_id}')
+    if not token:
+        return JsonResponse({'status': 'error', 'message': 'セッションが見つかりません。再度お試しください。'})
+
+    cache_key = _zip_cache_key(project_id, token)
+    if cache.get(cache_key) is not None:
+        return JsonResponse({'status': 'ready', 'download_url': reverse('project_pdf_zip', kwargs={'project_id': project_id})})
+
+    return JsonResponse({'status': 'pending'})
+
+
+@login_required
+def download_pages_zip(request, project_id: int):
+    """生成済みZIPをキャッシュから取り出してレスポンスとして返す。"""
+    project = get_object_or_404(_user_project_qs(request.user), pk=project_id)
+
+    token = request.session.get(f'zip_token_{project_id}')
+    if not token:
+        messages.error(request, 'ZIPの生成情報が見つかりません。再度お試しください。')
+        return redirect('project_detail', pk=project.pk)
+
+    cache_key = _zip_cache_key(project_id, token)
+    zip_bytes = cache.get(cache_key)
+    if zip_bytes is None:
+        return redirect(reverse('project_pdf_zip_pending', kwargs={'project_id': project_id}))
+
+    cache.delete(cache_key)
+    del request.session[f'zip_token_{project_id}']
+
     response = HttpResponse(zip_bytes, content_type='application/zip')
-    response['Content-Disposition'] = f'attachment; filename="{project.title}_pages.zip"'
+    filename = quote(f'{project.title}_pages.zip')
+    response['Content-Disposition'] = f"attachment; filename*=UTF-8''{filename}"
     return response
 
 
 @login_required
 def download_pages_csv(request, project_id: int):
-    project = get_object_or_404(
-        Project.objects.filter(Q(user=request.user) | Q(participants=request.user)).distinct(),
-        pk=project_id,
-    )
+    project = get_object_or_404(_user_project_qs(request.user), pk=project_id)
     pages = project.pages.order_by('order', 'id')
     if not pages.exists():
         return redirect('project_detail', pk=project.pk)
@@ -449,11 +497,9 @@ def download_pages_csv(request, project_id: int):
 @require_POST
 @login_required
 def upload_project_csv(request, project_id: int):
-    project = get_object_or_404(
-        Project.objects.filter(Q(user=request.user) | Q(participants=request.user)).distinct(),
-        pk=project_id,
-    )
+    project = get_object_or_404(_user_project_qs(request.user), pk=project_id)
     _ensure_project_templates(project)
+
     try:
         selected_template = _resolve_project_template(
             project,
@@ -465,107 +511,25 @@ def upload_project_csv(request, project_id: int):
         return redirect('project_detail', pk=project.pk)
 
     try:
-        uploaded_file = _validate_project_csv_upload(request.FILES.get('csv_file'))
-        raw = uploaded_file.read()
-        text = raw.decode('utf-8-sig')
-        reader = csv.reader(StringIO(text))
-        rows = list(reader)
-    except ValueError as exc:
+        uploaded_file = CSVImportService.validate_file(request.FILES.get('csv_file'))
+        service = CSVImportService(project=project, template=selected_template)
+        expected_headers = _project_csv_headers(project, selected_template)
+        parsed_rows = service.parse(uploaded_file, expected_headers)
+        count = service.import_rows(parsed_rows)
+    except CSVImportError as exc:
         messages.error(request, str(exc))
         return redirect('project_detail', pk=project.pk)
-    except UnicodeDecodeError:
-        messages.error(request, 'CSVの文字コードはUTF-8でアップロードしてください。')
-        return redirect('project_detail', pk=project.pk)
-    except csv.Error:
-        messages.error(request, 'CSVの形式が不正です。')
-        return redirect('project_detail', pk=project.pk)
 
-    if len(rows) < 2:
-        messages.error(request, 'CSVにはヘッダー行と1件以上のデータ行が必要です。')
-        return redirect('project_detail', pk=project.pk)
-
-    expected_headers = _project_csv_headers(project, selected_template)
-    actual_headers = [col.strip() for col in rows[0]]
-    if len(actual_headers) != len(expected_headers):
-        messages.error(
-            request,
-            f'CSVの項目数が不正です。期待: {len(expected_headers)}項目 / 実際: {len(actual_headers)}項目',
-        )
-        return redirect('project_detail', pk=project.pk)
-    if actual_headers != expected_headers:
-        messages.error(
-            request,
-            f'CSVヘッダーが一致しません。期待ヘッダー: {", ".join(expected_headers)}',
-        )
-        return redirect('project_detail', pk=project.pk)
-
-    text_keys = expected_headers[2:]
-    parsed_rows: list[tuple[int, str, dict[str, str]]] = []
-    seen_page_numbers: set[int] = set()
-
-    for index, row in enumerate(rows[1:], start=2):
-        if len(row) != len(expected_headers):
-            messages.error(request, f'{index}行目: 項目数が一致しません。')
-            return redirect('project_detail', pk=project.pk)
-        try:
-            page_number = int((row[0] or '').strip())
-        except ValueError:
-            messages.error(request, f'{index}行目: ページ番号は整数で入力してください。')
-            return redirect('project_detail', pk=project.pk)
-
-        if page_number <= 0:
-            messages.error(request, f'{index}行目: ページ番号は1以上で入力してください。')
-            return redirect('project_detail', pk=project.pk)
-        if page_number in seen_page_numbers:
-            messages.error(request, f'{index}行目: ページ番号 {page_number} が重複しています。')
-            return redirect('project_detail', pk=project.pk)
-        seen_page_numbers.add(page_number)
-
-        page_name = (row[1] or '').strip()
-        input_data = {key: str(value or '').strip() for key, value in zip(text_keys, row[2:])}
-        parsed_rows.append((page_number, page_name, input_data))
-
-    page_map = {page.page_number: page for page in project.pages.all()}
-    touched_numbers: set[int] = set()
-
-    for page_number, page_name, input_data in parsed_rows:
-        page = page_map.get(page_number)
-        if page:
-            page.page_name = page_name
-            page.input_data = input_data
-            page.project_template = selected_template
-            page.is_finalized = False
-            page.save(update_fields=['page_name', 'input_data', 'project_template', 'is_finalized', 'updated_at'])
-        else:
-            Page.objects.create(
-                project=project,
-                project_template=selected_template,
-                order=page_number,
-                page_number=page_number,
-                page_name=page_name,
-                input_data=input_data,
-                is_finalized=False,
-            )
-        touched_numbers.add(page_number)
-
-    for page in project.pages.exclude(page_number__in=touched_numbers):
-        page.is_finalized = False
-        page.save(update_fields=['is_finalized', 'updated_at'])
-
-    Page.resequence(project)
     messages.success(
         request,
-        f'CSVを取り込みました（{len(parsed_rows)}件 / テンプレート: {selected_template.name}）。画像はCSVからは登録されません。',
+        f'CSVを取り込みました（{count}件 / テンプレート: {selected_template.name}）。画像はCSVからは登録されません。',
     )
     return redirect('project_detail', pk=project.pk)
 
 
 @login_required
 def download_project_csv_format(request, project_id: int):
-    project = get_object_or_404(
-        Project.objects.filter(Q(user=request.user) | Q(participants=request.user)).distinct(),
-        pk=project_id,
-    )
+    project = get_object_or_404(_user_project_qs(request.user), pk=project_id)
     _ensure_project_templates(project)
     try:
         selected_template = _resolve_project_template(

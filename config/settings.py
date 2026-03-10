@@ -119,8 +119,19 @@ APP_NAME = env('APP_NAME')
 APP_VERSION = env('APP_VERSION')
 AUTH_LOG_SIGNING_KEY = env('AUTH_LOG_SIGNING_KEY', default=SECRET_KEY)
 
-# settings.py の末尾などに追加
 SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
 SECURE_SSL_REDIRECT = True
 SESSION_COOKIE_SECURE = True
+SESSION_COOKIE_HTTPONLY = True
+SESSION_COOKIE_SAMESITE = 'Lax'
 CSRF_COOKIE_SECURE = True
+# CSRF_COOKIE_HTTPONLY は False のまま（JS が getCookie('csrftoken') でトークンを読むため設定しない）
+CSRF_COOKIE_SAMESITE = 'Lax'
+
+CACHES = {
+    'default': {
+        'BACKEND': 'django.core.cache.backends.redis.RedisCache',
+        'LOCATION': env('CACHE_URL', default='redis://localhost:6379/2'),
+        'TIMEOUT': 3600,
+    }
+}

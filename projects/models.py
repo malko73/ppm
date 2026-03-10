@@ -148,11 +148,14 @@ class Page(models.Model):
     @classmethod
     def resequence(cls, project: Project):
         pages = list(project.pages.order_by('order', 'id'))
+        updates: list[Page] = []
         for index, page in enumerate(pages, start=1):
             if page.order != index or page.page_number != index:
                 page.order = index
                 page.page_number = index
-                page.save(update_fields=['order', 'page_number'])
+                updates.append(page)
+        if updates:
+            cls.objects.bulk_update(updates, ['order', 'page_number'])
 
 
 class PageImage(models.Model):
