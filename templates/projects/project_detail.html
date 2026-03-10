@@ -41,7 +41,7 @@
     <a class="btn btn-primary" href="{% url 'page_create' project.pk %}">ページ追加</a>
     <a class="btn btn-success" href="{% url 'project_pdf_merged' project.pk %}" target="_blank" rel="noopener noreferrer">全ページ結合PDF（軽量）</a>
     {% if all_pages_finalized %}
-    <a class="btn btn-secondary" href="{% url 'project_pdf_zip' project.pk %}">全ページZIP（印刷用350dpi）</a>
+    <a class="btn btn-secondary" href="{% url 'project_pdf_zip_start' project.pk %}">全ページZIP（印刷用350dpi）</a>
     <a class="btn btn-outline-secondary" href="{% url 'project_pages_csv' project.pk %}">校了データCSV</a>
     {% else %}
     <a class="btn btn-secondary disabled" href="#" aria-disabled="true" tabindex="-1">全ページZIP（全ページ校了で有効）</a>

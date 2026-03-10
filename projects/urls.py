@@ -16,6 +16,10 @@ urlpatterns = [
     path('projects/<int:project_id>/pages/reorder/', views.reorder_pages, name='page_reorder'),
     path('projects/<int:project_id>/pages/<int:pk>/pdf/', views.download_single_page_pdf, name='page_pdf'),
     path('projects/<int:project_id>/pdf/merged/', views.download_merged_pdf, name='project_pdf_merged'),
+    # ZIP は非同期生成: start → pending（ポーリング） → download
+    path('projects/<int:project_id>/pdf/zip/start/', views.start_pages_zip, name='project_pdf_zip_start'),
+    path('projects/<int:project_id>/pdf/zip/pending/', views.download_pending_zip, name='project_pdf_zip_pending'),
+    path('projects/<int:project_id>/pdf/zip/poll/', views.poll_pages_zip, name='project_pdf_zip_poll'),
     path('projects/<int:project_id>/pdf/zip/', views.download_pages_zip, name='project_pdf_zip'),
     path('projects/<int:project_id>/csv/', views.download_pages_csv, name='project_pages_csv'),
     path('projects/<int:project_id>/csv/upload/', views.upload_project_csv, name='project_csv_upload'),
