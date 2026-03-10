@@ -11,6 +11,7 @@ from django.core.files.uploadedfile import UploadedFile
 from django.db.models import Q
 from django.http import Http404, HttpResponse, HttpResponseBadRequest
 from django.shortcuts import get_object_or_404, redirect, render
+from django.utils.text import slugify
 from django.urls import reverse, reverse_lazy
 from django.views.decorators.http import require_POST
 from django.views.generic import CreateView, DeleteView, DetailView, ListView, UpdateView
@@ -32,8 +33,12 @@ def _ensure_project_templates(project: Project) -> None:
     )
 
 
-def _ordered_text_fields(project: Project) -> list[tuple[str, str]]:
-    positions = project.default_positions or {}
+def _ordered_text_fields(project: Project, template: ProjectTemplate | None = None) -> list[tuple[str, str]]:
+    positions = (
+        template.default_positions
+        if template and template.default_positions
+        else (project.default_positions or {})
+    )
     text_fields: list[tuple[int, str, str]] = []
     for key, pos in positions.items():
         if not isinstance(pos, dict) or 'font_size' not in pos:
@@ -45,9 +50,25 @@ def _ordered_text_fields(project: Project) -> list[tuple[str, str]]:
     return [(key, label) for _, key, label in text_fields]
 
 
-def _project_csv_headers(project: Project) -> list[str]:
-    text_fields = _ordered_text_fields(project)
+def _project_csv_headers(project: Project, template: ProjectTemplate | None = None) -> list[str]:
+    text_fields = _ordered_text_fields(project, template)
     return ['ページ番号', 'ページ名'] + [key for key, _ in text_fields]
+
+
+def _resolve_project_template(
+    project: Project,
+    template_id_raw: str | None,
+    *,
+    required: bool = False,
+) -> ProjectTemplate | None:
+    template_id = str(template_id_raw or '').strip()
+    if template_id.isdigit():
+        selected = project.templates.filter(pk=int(template_id)).first()
+        if selected:
+            return selected
+    if required:
+        raise ValueError('CSV対象テンプレートを選択してください。')
+    return project.get_default_template()
 
 
 def _validate_project_csv_upload(uploaded_file: UploadedFile | None) -> UploadedFile:
@@ -75,6 +96,25 @@ class ProjectListView(UserProjectMixin, ListView):
     template_name = 'projects/project_list.html'
     context_object_name = 'projects'
 
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        projects = list(context.get('projects') or [])
+
+        grouped: dict[str, list[Project]] = {}
+        for project in projects:
+            category = (project.category or '').strip() or '未分類'
+            grouped.setdefault(category, []).append(project)
+
+        group_names = sorted(name for name in grouped.keys() if name != '未分類')
+        project_groups: list[tuple[str, list[Project]]] = []
+        if '未分類' in grouped:
+            project_groups.append(('未分類', grouped['未分類']))
+        for name in group_names:
+            project_groups.append((name, grouped[name]))
+
+        context['project_groups'] = project_groups
+        return context
+
 
 class ProjectCreateView(LoginRequiredMixin, CreateView):
     model = Project
@@ -85,6 +125,7 @@ class ProjectCreateView(LoginRequiredMixin, CreateView):
         kwargs = super().get_form_kwargs()
         kwargs['request_user'] = self.request.user
         kwargs['layout_target'] = self.request.POST.get('layout_target') or self.request.GET.get('layout_target')
+        kwargs['delete_requested'] = bool(self.request.POST.get('delete_template'))
         return kwargs
 
     def form_valid(self, form):
@@ -120,7 +161,16 @@ class ProjectUpdateView(UserProjectMixin, UpdateView):
         kwargs = super().get_form_kwargs()
         kwargs['request_user'] = self.request.user
         kwargs['layout_target'] = self.request.POST.get('layout_target') or self.request.GET.get('layout_target')
+        kwargs['delete_requested'] = bool(self.request.POST.get('delete_template'))
         return kwargs
+
+    def form_valid(self, form):
+        response = super().form_valid(form)
+        if form.cleaned_data.get('_delete_target_template'):
+            messages.success(self.request, 'テンプレートを削除しました。')
+        else:
+            messages.success(self.request, 'プロジェクト設定を更新しました。')
+        return response
 
     def get_success_url(self):
         return reverse('project_detail', kwargs={'pk': self.object.pk})
@@ -142,6 +192,7 @@ def copy_project(request, pk: int):
     copied_project = Project.objects.create(
         user=request.user,
         title=f'{source_project.title} (コピー)',
+        category=source_project.category,
         description=source_project.description,
         template_file=source_project.template_file,
         default_positions=copy.deepcopy(source_project.default_positions or {}),
@@ -322,7 +373,11 @@ def download_single_page_pdf(request, project_id: int, pk: int):
     page = get_object_or_404(Page, pk=pk, project=project)
     pdf_bytes = PDFRenderService.render_single_page_bytes(project, page, output_profile='preview')
     response = HttpResponse(pdf_bytes, content_type='application/pdf')
-    response['Content-Disposition'] = f'inline; filename="{project.title}_page_{page.page_number}.pdf"'
+    page_name = slugify((page.page_name or '').strip(), allow_unicode=True)
+    filename = f"{page.page_number:03d}.pdf"
+    if page_name:
+        filename = f"{page.page_number:03d}_{page_name}.pdf"
+    response['Content-Disposition'] = f'inline; filename="{filename}"'
     return response
 
 
@@ -398,6 +453,16 @@ def upload_project_csv(request, project_id: int):
         Project.objects.filter(Q(user=request.user) | Q(participants=request.user)).distinct(),
         pk=project_id,
     )
+    _ensure_project_templates(project)
+    try:
+        selected_template = _resolve_project_template(
+            project,
+            request.POST.get('template_id'),
+            required=True,
+        )
+    except ValueError as exc:
+        messages.error(request, str(exc))
+        return redirect('project_detail', pk=project.pk)
 
     try:
         uploaded_file = _validate_project_csv_upload(request.FILES.get('csv_file'))
@@ -419,7 +484,7 @@ def upload_project_csv(request, project_id: int):
         messages.error(request, 'CSVにはヘッダー行と1件以上のデータ行が必要です。')
         return redirect('project_detail', pk=project.pk)
 
-    expected_headers = _project_csv_headers(project)
+    expected_headers = _project_csv_headers(project, selected_template)
     actual_headers = [col.strip() for col in rows[0]]
     if len(actual_headers) != len(expected_headers):
         messages.error(
@@ -468,11 +533,13 @@ def upload_project_csv(request, project_id: int):
         if page:
             page.page_name = page_name
             page.input_data = input_data
+            page.project_template = selected_template
             page.is_finalized = False
-            page.save(update_fields=['page_name', 'input_data', 'is_finalized', 'updated_at'])
+            page.save(update_fields=['page_name', 'input_data', 'project_template', 'is_finalized', 'updated_at'])
         else:
             Page.objects.create(
                 project=project,
+                project_template=selected_template,
                 order=page_number,
                 page_number=page_number,
                 page_name=page_name,
@@ -486,7 +553,10 @@ def upload_project_csv(request, project_id: int):
         page.save(update_fields=['is_finalized', 'updated_at'])
 
     Page.resequence(project)
-    messages.success(request, f'CSVを取り込みました（{len(parsed_rows)}件）。画像はCSVからは登録されません。')
+    messages.success(
+        request,
+        f'CSVを取り込みました（{len(parsed_rows)}件 / テンプレート: {selected_template.name}）。画像はCSVからは登録されません。',
+    )
     return redirect('project_detail', pk=project.pk)
 
 
@@ -496,10 +566,22 @@ def download_project_csv_format(request, project_id: int):
         Project.objects.filter(Q(user=request.user) | Q(participants=request.user)).distinct(),
         pk=project_id,
     )
-    headers = _project_csv_headers(project)
+    _ensure_project_templates(project)
+    try:
+        selected_template = _resolve_project_template(
+            project,
+            request.GET.get('template_id'),
+            required=True,
+        )
+    except ValueError as exc:
+        messages.error(request, str(exc))
+        return redirect('project_detail', pk=project.pk)
+
+    headers = _project_csv_headers(project, selected_template)
     response = HttpResponse(content_type='text/csv; charset=utf-8')
     response.write('\ufeff')
-    filename = quote(f'{project.title}_format.csv')
+    template_slug = slugify(selected_template.name, allow_unicode=True) or f'template-{selected_template.pk}'
+    filename = quote(f'{project.title}_{template_slug}_format.csv')
     response['Content-Disposition'] = f"attachment; filename*=UTF-8''{filename}"
     writer = csv.writer(response)
     writer.writerow(headers)

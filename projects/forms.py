@@ -13,6 +13,7 @@ VALID_KEY_RE = re.compile(r'^[a-zA-Z][a-zA-Z0-9_]{0,63}$')
 FIXED_IMAGE_KEYS = {'main_image', 'sub_image1', 'sub_image2'}
 VALID_HEX_COLOR_RE = re.compile(r'^#[0-9a-fA-F]{6}$')
 HORIZONTAL_FONT_WEIGHTS = {'normal', 'medium', 'bold'}
+HORIZONTAL_TEXT_ALIGNS = {'left', 'center', 'right'}
 
 
 class MultipleFileInput(forms.ClearableFileInput):
@@ -58,6 +59,10 @@ def _positions_dict(
     return DEFAULT_POSITIONS
 
 
+def _is_same_as_default_positions(positions: dict[str, dict[str, Any]]) -> bool:
+    return positions == DEFAULT_POSITIONS
+
+
 class ProjectForm(forms.ModelForm):
     text_layout_json = forms.CharField(widget=forms.HiddenInput(), required=False)
     image_layout_json = forms.CharField(widget=forms.HiddenInput(), required=False)
@@ -73,37 +78,52 @@ class ProjectForm(forms.ModelForm):
         label='差し替えPDF',
         help_text='選択した登録済みテンプレートを新しいPDFで差し替えます。',
     )
+    default_template_target = forms.ChoiceField(required=False, label='既定テンプレート')
+    delete_template_target = forms.ChoiceField(required=False, label='削除対象テンプレート')
 
     class Meta:
         model = Project
-        fields = ['title', 'description', 'participants']
+        fields = ['title', 'category', 'description']
         widgets = {
+            'category': forms.TextInput(attrs={'placeholder': '例: グルメ, 観光'}),
             'description': forms.Textarea(attrs={'rows': 3}),
         }
 
     def __init__(self, *args, **kwargs):
-        self.request_user = kwargs.pop('request_user', None)
+        kwargs.pop('request_user', None)
         self.layout_target = str(kwargs.pop('layout_target', '') or '').strip()
+        self.delete_requested = bool(kwargs.pop('delete_requested', False))
         super().__init__(*args, **kwargs)
-        can_manage_participants = bool(self.request_user and self.request_user.is_staff)
-        if can_manage_participants:
-            self.fields['participants'].queryset = self.fields['participants'].queryset.filter(is_active=True)
-            self.fields['participants'].help_text = 'このプロジェクトに参加できるユーザーを選択します。'
-        else:
-            self.fields.pop('participants', None)
         self.existing_templates = []
         template_choices = [('__project__', '基本サンプル')]
         replace_choices = [('', '選択してください')]
+        default_choices = [('', '選択してください')]
+        delete_choices = [('', '選択してください')]
         if getattr(self.instance, 'pk', None):
             self.existing_templates = list(self.instance.templates.order_by('-is_default', 'id'))
             for template in self.existing_templates:
                 template_choices.append((str(template.id), template.name))
                 replace_choices.append((str(template.id), template.name))
+                default_choices.append((str(template.id), template.name))
+                delete_choices.append((str(template.id), template.name))
         self.fields['layout_target'].choices = template_choices
         self.fields['replace_template_target'].choices = replace_choices
+        self.fields['default_template_target'].choices = default_choices
+        self.fields['delete_template_target'].choices = delete_choices
         if not self.existing_templates:
             self.fields['replace_template_target'].disabled = True
             self.fields['replace_template_file'].disabled = True
+            self.fields['default_template_target'].choices = [('', '登録済みテンプレートなし')]
+            self.fields['default_template_target'].disabled = True
+            self.fields['default_template_target'].help_text = 'テンプレート登録後に設定できます。'
+            self.fields['delete_template_target'].choices = [('', '登録済みテンプレートなし')]
+            self.fields['delete_template_target'].disabled = True
+            self.fields['delete_template_target'].help_text = 'テンプレート登録後に削除できます。'
+        else:
+            default_template = next((t for t in self.existing_templates if t.is_default), self.existing_templates[0])
+            self.fields['default_template_target'].initial = str(default_template.pk)
+            self.fields['default_template_target'].help_text = 'プロジェクトで既定に使うテンプレートを選択します。'
+            self.fields['delete_template_target'].help_text = '選択したテンプレートを削除します。'
         if self.layout_target:
             selected_target = self.layout_target
         else:
@@ -115,6 +135,8 @@ class ProjectForm(forms.ModelForm):
 
         selected_template = next((t for t in self.existing_templates if str(t.id) == selected_target), None)
         positions = _positions_dict(getattr(self, 'instance', None), selected_template)
+        if _is_same_as_default_positions(positions):
+            positions = {}
 
         text_rows: list[dict[str, Any]] = []
         image_rows: list[dict[str, Any]] = []
@@ -139,6 +161,7 @@ class ProjectForm(forms.ModelForm):
                         'font_family': str(pos.get('font_family', 'gothic')),
                         'horizontal_font_weight': str(pos.get('horizontal_font_weight', 'normal')),
                         'horizontal_text_color': str(pos.get('horizontal_text_color', '#000000')),
+                        'horizontal_text_align': str(pos.get('horizontal_text_align', 'left')),
                     }
                 )
             else:
@@ -205,19 +228,24 @@ class ProjectForm(forms.ModelForm):
                     raise ValidationError(f'{row_type} {index} 行目: フォントが不正です。')
                 horizontal_font_weight = str(row.get('horizontal_font_weight', 'normal')).strip().lower()
                 horizontal_text_color = str(row.get('horizontal_text_color', '#000000')).strip()
+                horizontal_text_align = str(row.get('horizontal_text_align', 'left')).strip().lower()
                 if writing_mode == 'horizontal':
                     if horizontal_font_weight not in HORIZONTAL_FONT_WEIGHTS:
                         raise ValidationError(f'{row_type} {index} 行目: 横書き文字の太さが不正です。')
                     if not VALID_HEX_COLOR_RE.match(horizontal_text_color):
                         raise ValidationError(f'{row_type} {index} 行目: 横書き文字色は #RRGGBB 形式で入力してください。')
+                    if horizontal_text_align not in HORIZONTAL_TEXT_ALIGNS:
+                        raise ValidationError(f'{row_type} {index} 行目: 横書き文字の寄せ位置が不正です。')
                 else:
                     horizontal_font_weight = 'normal'
                     horizontal_text_color = '#000000'
+                    horizontal_text_align = 'left'
                 item['font_size'] = font_size
                 item['writing_mode'] = writing_mode
                 item['font_family'] = font_family
                 item['horizontal_font_weight'] = horizontal_font_weight
                 item['horizontal_text_color'] = horizontal_text_color.upper()
+                item['horizontal_text_align'] = horizontal_text_align
             parsed.append(item)
 
         return parsed
@@ -232,8 +260,6 @@ class ProjectForm(forms.ModelForm):
         overlap = text_keys.intersection(image_keys)
         if overlap:
             raise ValidationError(f'テキストと画像で同じキーは使えません: {", ".join(sorted(overlap))}')
-        if not text_rows and not image_rows:
-            raise ValidationError('テキストまたは画像の配置項目を1つ以上追加してください。')
 
         uploaded_templates = cleaned_data.get('template_files') or []
         for uploaded_template in uploaded_templates:
@@ -269,43 +295,78 @@ class ProjectForm(forms.ModelForm):
             validate_pdf(replace_template_file)
         cleaned_data['_replace_target_template'] = replace_target_template
         cleaned_data['_replace_template_file'] = replace_template_file
+
+        default_target_raw = str(cleaned_data.get('default_template_target') or '').strip()
+        default_target_template = None
+        if default_target_raw:
+            if not self.instance.pk:
+                raise ValidationError('既定テンプレートの設定は、作成済みプロジェクトでのみ利用できます。')
+            if not default_target_raw.isdigit():
+                raise ValidationError('既定テンプレートの指定が不正です。')
+            default_target_template = self.instance.templates.filter(pk=int(default_target_raw)).first()
+            if not default_target_template:
+                raise ValidationError('既定テンプレートに指定したテンプレートが見つかりません。')
+        cleaned_data['_default_target_template'] = default_target_template
+
+        delete_target_raw = str(cleaned_data.get('delete_template_target') or '').strip() if self.delete_requested else ''
+        delete_target_template = None
+        if delete_target_raw:
+            if not self.instance.pk:
+                raise ValidationError('テンプレートの削除は、作成済みプロジェクトでのみ利用できます。')
+            if not delete_target_raw.isdigit():
+                raise ValidationError('削除対象テンプレートの指定が不正です。')
+            delete_target_template = self.instance.templates.filter(pk=int(delete_target_raw)).first()
+            if not delete_target_template:
+                raise ValidationError('削除対象テンプレートが見つかりません。')
+            remaining_count = self.instance.templates.exclude(pk=delete_target_template.pk).count() + len(uploaded_templates)
+            if remaining_count <= 0:
+                raise ValidationError('テンプレートは最低1件必要です。削除する場合は先に別テンプレートを登録してください。')
+            if default_target_template and default_target_template.pk == delete_target_template.pk:
+                raise ValidationError('削除対象テンプレートは既定テンプレートに設定できません。')
+        cleaned_data['_delete_target_template'] = delete_target_template
         return cleaned_data
 
     def save(self, commit=True):
         instance = super().save(commit=False)
 
-        positions: dict[str, dict[str, Any]] = {}
-        for index, row in enumerate(self.cleaned_data.get('_text_rows', []), start=1):
-            positions[row['key']] = {
-                'label': row['label'],
-                'x': mm_to_pt(row['x']),
-                'y': mm_to_pt(row['y']),
-                'w': mm_to_pt(row['w']),
-                'h': mm_to_pt(row['h']),
-                'font_size': row['font_size'],
-                'writing_mode': row['writing_mode'],
-                'font_family': row['font_family'],
-                'horizontal_font_weight': row['horizontal_font_weight'],
-                'horizontal_text_color': row['horizontal_text_color'],
-                'order': index,
-            }
+        text_rows = self.cleaned_data.get('_text_rows', [])
+        image_rows = self.cleaned_data.get('_image_rows', [])
+        has_layout_updates = bool(text_rows or image_rows)
 
-        for index, row in enumerate(self.cleaned_data.get('_image_rows', []), start=1):
-            positions[row['key']] = {
-                'label': row['label'],
-                'x': mm_to_pt(row['x']),
-                'y': mm_to_pt(row['y']),
-                'w': mm_to_pt(row['w']),
-                'h': mm_to_pt(row['h']),
-                'order': index,
-            }
+        positions: dict[str, dict[str, Any]] = {}
+        if has_layout_updates:
+            for index, row in enumerate(text_rows, start=1):
+                positions[row['key']] = {
+                    'label': row['label'],
+                    'x': mm_to_pt(row['x']),
+                    'y': mm_to_pt(row['y']),
+                    'w': mm_to_pt(row['w']),
+                    'h': mm_to_pt(row['h']),
+                    'font_size': row['font_size'],
+                    'writing_mode': row['writing_mode'],
+                    'font_family': row['font_family'],
+                    'horizontal_font_weight': row['horizontal_font_weight'],
+                    'horizontal_text_color': row['horizontal_text_color'],
+                    'horizontal_text_align': row['horizontal_text_align'],
+                    'order': index,
+                }
+
+            for index, row in enumerate(image_rows, start=1):
+                positions[row['key']] = {
+                    'label': row['label'],
+                    'x': mm_to_pt(row['x']),
+                    'y': mm_to_pt(row['y']),
+                    'w': mm_to_pt(row['w']),
+                    'h': mm_to_pt(row['h']),
+                    'order': index,
+                }
 
         if commit:
             layout_target = str(self.cleaned_data.get('_layout_target') or '__project__')
-            if layout_target == '__project__':
+            if layout_target == '__project__' and has_layout_updates:
                 instance.default_positions = positions
             instance.save()
-            if layout_target != '__project__':
+            if layout_target != '__project__' and has_layout_updates:
                 target_template = instance.templates.filter(pk=layout_target).first()
                 if target_template:
                     target_template.default_positions = positions
@@ -319,7 +380,7 @@ class ProjectForm(forms.ModelForm):
                     project=instance,
                     name=template_name,
                     template_file=uploaded_template,
-                    default_positions=positions,
+                    default_positions=(positions if has_layout_updates else (instance.default_positions or DEFAULT_POSITIONS)),
                     is_default=(existing_count == 0 and index == 1),
                 )
                 if not instance.template_file:
@@ -333,6 +394,36 @@ class ProjectForm(forms.ModelForm):
                 if replace_target_template.is_default or not instance.template_file:
                     instance.template_file = replace_target_template.template_file
                     instance.save(update_fields=['template_file', 'updated_at'])
+            delete_target_template = self.cleaned_data.get('_delete_target_template')
+            if delete_target_template:
+                deleting_template = instance.templates.filter(pk=delete_target_template.pk).first()
+                if deleting_template:
+                    linked_pages = list(deleting_template.pages.values_list('pk', flat=True))
+                    was_default = deleting_template.is_default
+                    deleting_template.delete()
+                    fallback_template = instance.templates.order_by('-is_default', 'id').first()
+                    if linked_pages and fallback_template:
+                        Page.objects.filter(pk__in=linked_pages).update(project_template=fallback_template, is_finalized=False)
+                    if was_default and fallback_template:
+                        instance.templates.update(is_default=False)
+                        fallback_template.is_default = True
+                        fallback_template.save(update_fields=['is_default', 'updated_at'])
+            default_target_template = self.cleaned_data.get('_default_target_template')
+            if default_target_template:
+                instance.templates.update(is_default=False)
+                selected_default = instance.templates.filter(pk=default_target_template.pk).first()
+                if selected_default:
+                    selected_default.is_default = True
+                    selected_default.save(update_fields=['is_default', 'updated_at'])
+            if not instance.templates.filter(is_default=True).exists():
+                fallback_template = instance.templates.order_by('id').first()
+                if fallback_template:
+                    fallback_template.is_default = True
+                    fallback_template.save(update_fields=['is_default', 'updated_at'])
+            selected_default = instance.get_default_template()
+            if selected_default and instance.template_file != selected_default.template_file:
+                instance.template_file = selected_default.template_file
+                instance.save(update_fields=['template_file', 'updated_at'])
         return instance
 
 
@@ -389,7 +480,11 @@ class PageForm(forms.ModelForm):
             label = str(pos.get('label') or DEFAULT_FIELD_LABELS.get(key, key))
             if 'font_size' in pos:
                 field_name = f'text__{key}'
-                self.fields[field_name] = forms.CharField(required=False, label=label)
+                self.fields[field_name] = forms.CharField(
+                    required=False,
+                    label=label,
+                    widget=forms.Textarea(attrs={'rows': 3}),
+                )
                 self.fields[field_name].initial = input_data.get(key, '')
                 self.text_meta.append({'key': key, 'field_name': field_name})
                 self.text_fields_for_template.append(self[field_name])

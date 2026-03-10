@@ -201,8 +201,7 @@ celery -A config worker -l info
 ### 7.6 フォント崩れ（日本語）
 - `NOTO_SANS_JP_FONT_PATH` を設定し、Noto Sans JP の実体ファイルを指定
 - 明朝を使う場合は `NOTO_SERIF_JP_FONT_PATH` を指定
-- パス指定が難しい場合は `NOTO_SANS_JP_FONT_URL` / `NOTO_SERIF_JP_FONT_URL`（`http/https` の `ttf/otf`）でも指定可能
-- ダウンロードしたフォントは `PDF_FONT_CACHE_DIR`（既定: `/tmp/ppm_pdf_fonts`）へキャッシュ
+- 本番は固定パス運用を推奨（URL配信フォントは非推奨）
 - 未設定時は CID フォントへフォールバック
 
 ---

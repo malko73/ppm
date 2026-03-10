@@ -38,12 +38,19 @@ class PDFRenderService:
         'mincho': ('NotoSerifJP', 'NotoSerifCJKjp', 'SourceHanSerif'),
     }
     _weight_tokens = {
+        'light': ('Thin', 'ExtraLight', 'Light', 'W2'),
         'normal': ('Regular', 'Normal', 'W3'),
         'medium': ('Medium', 'W5', 'DemiBold'),
         'bold': ('Bold', 'Heavy', 'W7'),
     }
     _noto_font_candidates = {
         'gothic': {
+            'light': (
+                'NotoSansJP-Light.ttf',
+                'NotoSansJP-Thin.ttf',
+                'NotoSansJP-ExtraLight.ttf',
+                'NotoSansJP-VariableFont_wght.ttf',
+            ),
             'normal': (
                 'NotoSansJP-Regular.ttf',
                 'NotoSansJP-Regular.otf',
@@ -61,6 +68,13 @@ class PDFRenderService:
             ),
         },
         'mincho': {
+            'light': (
+                'NotoSerifJP-Light.ttf',
+                'NotoSerifJP-Light.otf',
+                'NotoSerifJP-ExtraLight.ttf',
+                'NotoSerifJP-ExtraLight.otf',
+                'NotoSerifJP-VariableFont_wght.ttf',
+            ),
             'normal': (
                 'NotoSerifJP-Regular.ttf',
                 'NotoSerifJP-Regular.otf',
@@ -213,7 +227,7 @@ class PDFRenderService:
     @classmethod
     def _find_noto_font_path(cls, family: str, weight: str) -> Path | None:
         normalized_family = 'mincho' if family == 'mincho' else 'gothic'
-        normalized_weight = weight if weight in {'normal', 'medium', 'bold'} else 'normal'
+        normalized_weight = weight if weight in {'light', 'normal', 'medium', 'bold'} else 'normal'
         search_weights = [normalized_weight] if normalized_weight == 'normal' else [normalized_weight, 'normal']
 
         if normalized_family == 'mincho':
@@ -256,7 +270,7 @@ class PDFRenderService:
     @classmethod
     def _ensure_japanese_font(cls, family: str, weight: str = 'normal') -> str:
         normalized_family = 'mincho' if family == 'mincho' else 'gothic'
-        normalized_weight = weight if weight in {'normal', 'medium', 'bold'} else 'normal'
+        normalized_weight = weight if weight in {'light', 'normal', 'medium', 'bold'} else 'normal'
         font_key = (normalized_family, normalized_weight)
         if font_key not in cls._registered_font_keys:
             if normalized_family == 'mincho':
@@ -454,7 +468,7 @@ class PDFRenderService:
         dpi: int,
     ) -> ImageFont.FreeTypeFont | None:
         normalized_family = 'mincho' if family == 'mincho' else 'gothic'
-        normalized_weight = weight if weight in {'normal', 'medium', 'bold'} else 'normal'
+        normalized_weight = weight if weight in {'light', 'normal', 'medium', 'bold'} else 'normal'
         font_path = cls._find_noto_font_path(normalized_family, normalized_weight)
         if not font_path:
             font_path = cls._find_noto_font_path(normalized_family, 'normal')
@@ -718,6 +732,20 @@ class PDFRenderService:
         for offset_x, offset_y in offsets:
             draw_canvas.drawString(x + offset_x, y + offset_y, text)
 
+    @staticmethod
+    def _horizontal_line_x(
+        align: str,
+        base_x: float,
+        box_width: float,
+        line_width: float,
+    ) -> float:
+        remaining = max(0.0, box_width - line_width)
+        if align == 'center':
+            return base_x + (remaining / 2.0)
+        if align == 'right':
+            return base_x + remaining
+        return base_x
+
     @classmethod
     def _draw_text(
         cls,
@@ -740,6 +768,8 @@ class PDFRenderService:
             font_weight = 'normal'
             if writing_mode == 'horizontal':
                 font_weight = str(pos.get('horizontal_font_weight', 'normal')).strip().lower()
+            elif writing_mode == 'vertical':
+                font_weight = str(pos.get('vertical_font_weight', 'light')).strip().lower()
             font_name = cls._ensure_japanese_font(font_family, font_weight)
             font_size = float(pos.get('font_size', 12))
             x, top_y, text_width, text_height, line_height = cls._normalize_text_box(pos, page_width, page_height, font_size)
@@ -762,7 +792,7 @@ class PDFRenderService:
                 vertical_png = cls._render_vertical_text_image_bytes(
                     text=str(value),
                     font_family=font_family,
-                    font_weight='normal',
+                    font_weight=font_weight,
                     font_size=font_size,
                     text_width=text_width,
                     text_height=text_height,
@@ -807,6 +837,9 @@ class PDFRenderService:
             else:
                 draw_canvas.setFillColor(cls._horizontal_fill_color(pos))
             draw_offsets = cls._horizontal_draw_offsets(pos, font_size)
+            horizontal_align = str(pos.get('horizontal_text_align', 'left')).strip().lower()
+            if horizontal_align not in {'left', 'center', 'right'}:
+                horizontal_align = 'left'
             wrapped_lines = cls._wrap_text_to_width(str(value), font_name, font_size, text_width)
             max_lines = max(1, int(text_height // line_height))
             for line_index, line in enumerate(wrapped_lines):
@@ -815,7 +848,9 @@ class PDFRenderService:
                 baseline_y = page_height - top_y - font_size - (line_index * line_height)
                 if baseline_y < page_height - (top_y + text_height):
                     break
-                cls._draw_horizontal_line(draw_canvas, x, baseline_y, line, draw_offsets)
+                line_width = pdfmetrics.stringWidth(line, font_name, font_size)
+                line_x = cls._horizontal_line_x(horizontal_align, x, text_width, line_width)
+                cls._draw_horizontal_line(draw_canvas, line_x, baseline_y, line, draw_offsets)
 
     @classmethod
     def _resolve_image_for_key(cls, page: Page, key: str, image_map: dict[str, PageImage]):

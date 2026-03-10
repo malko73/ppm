@@ -3,6 +3,7 @@
 <div class="d-flex justify-content-between align-items-start mb-3">
     <div>
         <h1 class="h3 mb-1">{{ project.title }}</h1>
+        <p class="mb-1"><span class="badge text-bg-secondary">{{ project.category|default:'未分類' }}</span></p>
         <p class="text-muted mb-0">{{ project.description|default:'-' }}</p>
         {% if template_size_mm %}
         <p class="text-muted mb-0 small">既定テンプレートサイズ: 横{{ template_size_mm.0 }}mm / 縦{{ template_size_mm.1 }}mm</p>
@@ -47,15 +48,29 @@
     <a class="btn btn-secondary disabled" href="#" aria-disabled="true" tabindex="-1">全ページZIP（全ページ校了で有効）</a>
     <a class="btn btn-outline-secondary disabled" href="#" aria-disabled="true" tabindex="-1">校了データCSV（全ページ校了で有効）</a>
     {% endif %}
-    <a class="btn btn-outline-dark" href="{% url 'project_csv_format' project.pk %}">プロジェクトCSVフォーマット</a>
+    <form method="get" action="{% url 'project_csv_format' project.pk %}" class="d-flex flex-wrap gap-2 align-items-center">
+        <select name="template_id" class="form-select" style="max-width: 320px;" required>
+            <option value="">CSVフォーマット対象テンプレートを選択</option>
+            {% for template in templates %}
+            <option value="{{ template.pk }}"{% if template.is_default %} selected{% endif %}>{{ template.name }}</option>
+            {% endfor %}
+        </select>
+        <button type="submit" class="btn btn-outline-dark">プロジェクトCSVフォーマット</button>
+    </form>
 </div>
 
 <div class="card mb-3">
     <div class="card-body">
         <h2 class="h6 mb-2">CSVアップロード</h2>
-        <p class="small text-muted mb-2">CSVのみアップロードできます。画像ファイルはアップロードできません。</p>
+        <p class="small text-muted mb-2">CSVのみアップロードできます。画像ファイルはアップロードできません。先に対象テンプレートを選んでください。</p>
         <form method="post" action="{% url 'project_csv_upload' project.pk %}" enctype="multipart/form-data" class="d-flex flex-wrap gap-2 align-items-center">
             {% csrf_token %}
+            <select name="template_id" class="form-select" style="max-width: 320px;" required>
+                <option value="">CSV取込対象テンプレートを選択</option>
+                {% for template in templates %}
+                <option value="{{ template.pk }}"{% if template.is_default %} selected{% endif %}>{{ template.name }}</option>
+                {% endfor %}
+            </select>
             <input type="file" name="csv_file" accept=".csv,text/csv" class="form-control" style="max-width: 420px;" required>
             <button type="submit" class="btn btn-outline-primary">CSV取込</button>
         </form>

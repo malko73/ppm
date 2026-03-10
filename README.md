@@ -1,4 +1,4 @@
-# MACKs 1.0.8
+# MACKs 1.0.10
 
 冊子・カタログ制作向けの Django ベース Web アプリケーションです。  
 テンプレート PDF に対して、テキストや画像をページ単位で配置し、単体 PDF・結合 PDF・ZIP を出力できます。
@@ -9,6 +9,11 @@
 - 変更内容は本READMEの「更新ログ」に追記する
 
 ## 更新ログ
+### 1.0.10 - 2026-02-25
+- ログイン成功/失敗/ログアウトの認証イベント監査ログを追加
+- 監査ログにハッシュチェーン（`previous_hash` + `payload_hash` + `entry_hash`）を導入し、改ざん検知を実装
+- `python manage.py verify_auth_logs` で監査ログの整合性を検証できる運用コマンドを追加
+
 ### 1.0.8 - 2026-02-21
 - 縦書きテキスト描画を Pillow ベースに改修し、文字単位の回転・配置補正に対応
 - 句読点（、。）を縦組み専用グリフ優先で描画するよう改善
@@ -116,7 +121,8 @@ DJANGO_SECRET_KEY=change-me
 DEBUG=True
 ALLOWED_HOSTS=127.0.0.1,localhost
 APP_NAME=MACKs
-APP_VERSION=1.0.8
+APP_VERSION=1.0.10
+AUTH_LOG_SIGNING_KEY=
 
 MYSQL_DATABASE=appsdb
 MYSQL_USER=rocky

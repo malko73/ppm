@@ -41,6 +41,7 @@ class Project(models.Model):
         blank=True,
     )
     title = models.CharField(max_length=255)
+    category = models.CharField(max_length=100, blank=True, default='', db_index=True)
     description = models.TextField(blank=True)
     template_file = models.FileField(upload_to='templates/', validators=[validate_pdf], blank=True, null=True)
     default_positions = models.JSONField(default=dict, blank=True)
@@ -54,6 +55,7 @@ class Project(models.Model):
         return self.title
 
     def save(self, *args, **kwargs):
+        self.category = str(self.category or '').strip()
         if not self.default_positions:
             self.default_positions = copy.deepcopy(DEFAULT_POSITIONS)
         super().save(*args, **kwargs)

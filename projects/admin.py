@@ -5,8 +5,9 @@ from .models import Page, PageImage, Project, ProjectTemplate
 
 @admin.register(Project)
 class ProjectAdmin(admin.ModelAdmin):
-    list_display = ('title', 'user', 'updated_at')
-    search_fields = ('title', 'user__email')
+    list_display = ('title', 'category', 'user', 'updated_at')
+    search_fields = ('title', 'category', 'user__email')
+    list_filter = ('category',)
     filter_horizontal = ('participants',)
 
 

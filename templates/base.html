@@ -11,7 +11,10 @@
 <body class="bg-light d-flex flex-column min-vh-100">
 <nav class="navbar navbar-expand-lg bg-white border-bottom">
     <div class="container">
-        <a class="navbar-brand fw-bold" href="{% url 'project_list' %}">{{ APP_NAME }}</a>
+        <a class="navbar-brand d-flex flex-column lh-1 m-0" href="{% url 'project_list' %}">
+            <span class="fw-bold fs-2">{{ APP_NAME }}</span>
+            <span class="text-muted small mt-1">Make Awesome Creations, Keep shipping</span>
+        </a>
         <div class="d-flex align-items-center gap-2">
             {% if request.user.is_authenticated %}
                 <span class="text-muted small">{{ request.user.email }}</span>
