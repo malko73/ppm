@@ -1,0 +1,61 @@
+{% extends 'base.html' %}
+{% block content %}
+<div class="text-center py-5">
+    <h1 class="h4 mb-3">ZIPファイルを生成中...</h1>
+    <p class="text-muted mb-4">印刷用PDFを生成しています。ページ数によって数分かかる場合があります。</p>
+    <div class="spinner-border text-primary mb-4" role="status" id="spinner">
+        <span class="visually-hidden">生成中</span>
+    </div>
+    <div id="download-area" class="d-none">
+        <p class="text-success fw-bold">生成完了しました！</p>
+        <a id="download-link" href="{% url 'project_pdf_zip' project.pk %}" class="btn btn-secondary btn-lg">
+            ZIPをダウンロード
+        </a>
+    </div>
+    <div id="error-area" class="d-none">
+        <p class="text-danger">生成に失敗しました。</p>
+        <a href="{% url 'project_detail' project.pk %}" class="btn btn-outline-secondary">プロジェクトに戻る</a>
+    </div>
+</div>
+
+<script>
+(function () {
+    var pollUrl = "{% url 'project_pdf_zip_poll' project.pk %}";
+    var maxRetries = 90; // 最大3分ポーリング
+    var retries = 0;
+
+    function poll() {
+        fetch(pollUrl, {credentials: 'same-origin'})
+            .then(function (res) { return res.json(); })
+            .then(function (data) {
+                if (data.status === 'ready') {
+                    document.getElementById('spinner').classList.add('d-none');
+                    document.getElementById('download-area').classList.remove('d-none');
+                    // 自動でダウンロードを開始する
+                    window.location.href = data.download_url;
+                } else if (data.status === 'error') {
+                    document.getElementById('spinner').classList.add('d-none');
+                    document.getElementById('error-area').classList.remove('d-none');
+                } else if (retries < maxRetries) {
+                    retries++;
+                    setTimeout(poll, 2000);
+                } else {
+                    document.getElementById('spinner').classList.add('d-none');
+                    document.getElementById('error-area').classList.remove('d-none');
+                }
+            })
+            .catch(function () {
+                if (retries < maxRetries) {
+                    retries++;
+                    setTimeout(poll, 2000);
+                } else {
+                    document.getElementById('spinner').classList.add('d-none');
+                    document.getElementById('error-area').classList.remove('d-none');
+                }
+            });
+    }
+
+    setTimeout(poll, 2000);
+})();
+</script>
+{% endblock %}
