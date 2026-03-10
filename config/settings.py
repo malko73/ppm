@@ -7,7 +7,7 @@ env = environ.Env(
     DEBUG=(bool, True),
     USE_S3=(bool, False),
     APP_NAME=(str, 'MACKs'),
-    APP_VERSION=(str, '1.0.8'),
+    APP_VERSION=(str, '1.0.10'),
 )
 environ.Env.read_env(BASE_DIR / '.env')
 
@@ -117,6 +117,7 @@ CELERY_RESULT_BACKEND = env('CELERY_RESULT_BACKEND', default='redis://localhost:
 
 APP_NAME = env('APP_NAME')
 APP_VERSION = env('APP_VERSION')
+AUTH_LOG_SIGNING_KEY = env('AUTH_LOG_SIGNING_KEY', default=SECRET_KEY)
 
 # settings.py の末尾などに追加
 SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
