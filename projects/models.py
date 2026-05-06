@@ -10,6 +10,33 @@ from .constants import DEFAULT_POSITIONS
 
 PT_PER_MM = 72 / 25.4
 
+ALLOWED_IMAGE_TYPES = {
+    'image/jpeg': [b'\xff\xd8\xff'],
+    'image/png':  [b'\x89PNG\r\n\x1a\n'],
+    'image/tiff': [b'II*\x00', b'MM\x00*'],
+}
+ALLOWED_IMAGE_EXTENSIONS = {'.jpg', '.jpeg', '.png', '.tif', '.tiff'}
+
+
+def _validate_image_type(image):
+    """ファイルの先頭バイトでMIMEタイプを検証する（ホワイトリスト方式）。"""
+    import os
+    ext = os.path.splitext(image.name)[1].lower()
+    if ext not in ALLOWED_IMAGE_EXTENSIONS:
+        raise ValidationError(
+            f'許可されていない拡張子です（{ext}）。JPEG・PNG・TIFFのみ使用できます。'
+        )
+    image.seek(0)
+    header = image.read(8)
+    image.seek(0)
+    for magic_list in ALLOWED_IMAGE_TYPES.values():
+        for magic in magic_list:
+            if header.startswith(magic):
+                return
+    raise ValidationError(
+        '画像ファイルの形式が不正です。JPEG・PNG・TIFFのみ使用できます。'
+    )
+
 
 def validate_pdf(file_obj):
     if file_obj.size > 100 * 1024 * 1024:
@@ -31,6 +58,8 @@ def validate_pdf(file_obj):
 def validate_image_size(image):
     if image and image.size > 20 * 1024 * 1024:
         raise ValidationError('画像は1ファイル20MB以下にしてください。')
+    if image:
+        _validate_image_type(image)
 
 
 class Project(models.Model):
