@@ -1,183 +1,39 @@
-# MACKs 1.0.10
+# PPM (MACKs) — PDF Project Manager
 
-冊子・カタログ制作向けの Django ベース Web アプリケーションです。  
-テンプレート PDF に対して、テキストや画像をページ単位で配置し、単体 PDF・結合 PDF・ZIP を出力できます。
-
-## 更新ルール
-- 微修正を含むすべての変更でバージョンを更新する
-- 変更時は `APP_VERSION` と本README先頭のバージョンを合わせる
-- 変更内容は本READMEの「更新ログ」に追記する
-
-## 更新ログ
-### 1.0.10 - 2026-02-25
-- ログイン成功/失敗/ログアウトの認証イベント監査ログを追加
-- 監査ログにハッシュチェーン（`previous_hash` + `payload_hash` + `entry_hash`）を導入し、改ざん検知を実装
-- `python manage.py verify_auth_logs` で監査ログの整合性を検証できる運用コマンドを追加
-
-### 1.0.8 - 2026-02-21
-- 縦書きテキスト描画を Pillow ベースに改修し、文字単位の回転・配置補正に対応
-- 句読点（、。）を縦組み専用グリフ優先で描画するよう改善
-- かぎ括弧・丸括弧・長音符の縦書き時の向きと位置ずれを調整
-
-### 1.0.7 - 2026-02-21
-- プロジェクト設定画面で既定テンプレート設定を常時表示するよう改善
-- プロジェクト設定画面から登録済みテンプレートを削除できる機能を追加
-- 既定テンプレート削除時は残存テンプレートへ自動切替し、関連ページの参照先を自動更新
-
-### 1.0.6 - 2026-02-21
-- プロジェクトに自由入力のカテゴリ項目を追加
-- プロジェクト一覧をカテゴリ単位でグルーピング表示
-- 作成/編集フォーム・詳細画面・管理画面でカテゴリを表示/編集可能に改善
-
-### 1.0.5 - 2026-02-21
-- プロジェクトCSVフォーマットをテンプレート選択式に変更
-- CSV取込時に対象テンプレートを必須化し、選択テンプレートの項目でヘッダー検証するよう改善
-- CSV取込で更新/作成したページへ選択テンプレートを自動紐づけ
-
-### 1.0.4 - 2026-02-21
-- プロジェクト編集で登録済みテンプレートの差し替え機能を追加
-- レイアウト編集対象の既定表示を「基本サンプル」に変更
-
-### 1.0.3 - 2026-02-20
-- PDF 描画のフォント探索を強化し、明朝フォント（縦書きを含む）の解決精度を改善
-- 横書き「やや太字 / 太字」で利用するフォント選択と描画オフセットを見直し、太さの反映を強化
-
-### 1.0.2 - 2026-02-20
-- プロジェクト設定のテキスト配置に「横書き文字の太さ」「横書き文字色」を追加
-- 横書きテキストのみ太さ・色をPDF描画へ反映（縦書きは従来どおり）
-
-### 1.0.1 - 2026-02-19
-- テキスト配置にフォント選択（ゴシック/明朝）を追加
-- PDF描画でフォント切替・明朝失敗時フォールバックを追加
-- 縦書き記号（句読点/かっこ/引用符/長音符）の表示崩れ・欠落を改善
-- ページ削除時のエラーを修正し、削除前確認ダイアログを追加
-- 印刷用ZIPの解像度を 350dpi に変更（関連文言を更新）
-- 印刷用PDFの画像/文字をCMYK出力に対応
-- PDFフォントのURL指定読込（ttf/otf）とキャッシュに対応
-
-### 1.0.0 - 2026-02-19
-- 正式リリース
-- アプリ名称を `MACKs` に統一
-- フッターにバージョン表示を追加
-
-## 概要
-- 認証: Django 標準認証（`CustomUser` / メールアドレスログイン）
-- 権限: プロジェクト作成者 + 参加者で共同編集
-- 編集: ページ追加/更新/削除、ドラッグ&ドロップ並び替え（再採番あり）
-- 出力: 単ページ PDF / 結合 PDF / ページ別 PDF ZIP
-- ストレージ: ローカル `media/` または S3（切替可）
-- 非同期: Celery + Redis（任意）
+**v1.0.11** (2026-05-06)  
+テンプレートPDFにテキスト・画像を差し込み、ページ単位で編集・出力するDjango Webアプリ。
+冊子・カタログ制作向け。
 
 ## 技術スタック
-- Python 3.11+
-- Django 5.1+
-- MySQL 8.x
+
+- Python 3.11+ / Django 5.1+
+- MySQL 8.x / Celery + Redis（非同期PDF生成）
 - Bootstrap 5 / HTMX / Sortable.js
-- pypdf / reportlab / Pillow
-- django-storages / boto3（S3 使用時）
-- Celery / Redis（非同期処理使用時）
+- pypdf / reportlab / Pillow / S3対応
 
 ## 主な機能
-### 1. プロジェクト管理
-- テンプレート PDF（100MB 以下）をプロジェクト単位で管理
-- テキスト・画像の配置定義（`default_positions`）を JSON で保持
-- スタッフユーザーは参加者（`participants`）を指定可能
 
-### 2. ページ管理
-- ページ名 + 可変テキスト項目 + 可変画像項目を登録
-- 画像バリデーション
-  - 1ファイル: 20MB 以下
-  - 1ページ合計: 50MB 以下
-- 並び替え時に `order` / `page_number` を 1 始まりで再採番
+| 機能 | 説明 |
+|---|---|
+| **プロジェクト管理** | 作成・編集・削除・コピー・参加者管理 |
+| **ページ編集** | 追加・編集・削除・校了・ドラッグ並び替え |
+| **PDF出力** | 単ページプレビュー / 全結合PDF / ZIPダウンロード |
+| **CSV入出力** | データ出力・フォーマットDL・取込 |
+| **認証** | メールアドレスログイン、HMAC-SHA256改ざん検知監査ログ |
 
-### 3. PDF / ZIP 出力
-- 単ページ PDF プレビュー出力
-- 全ページ結合 PDF プレビュー出力
-- ページ別 PDF 一括 ZIP ダウンロード
+## 構成
 
-## 画面 / URL
-- `/admin/` : 管理画面
-- `/accounts/login/` : ログイン
-- `/` : プロジェクト一覧
+- `config/` — Django設定・Celery
+- `accounts/` — カスタムユーザー・監査ログ
+- `projects/` — コアドメインモデル・ビュー・PDFレンダラ
 
-## セットアップ
-### 前提
-- Python 3.11 以上
-- MySQL 8.x
-- （任意）Redis
+## 更新ログ
+### 1.0.11 - 2026-05-06
+- ログイン500エラー（MariaDB停止＋settings.py CACHES条件不整合）を修正
+- MariaDB自動起動設定確認（既にenabled）
+- CACHESのRedis切り替え条件分岐を除去（LocMemCache固定化）
+- APP_VERSION 1.0.10 → 1.0.11
 
-### 1) 依存パッケージ
-```bash
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-```
+## 関連ドキュメント
 
-### 2) 環境変数（`.env`）
-`config/settings.py` で利用している主な変数:
-
-```env
-DJANGO_SECRET_KEY=change-me
-DEBUG=True
-ALLOWED_HOSTS=127.0.0.1,localhost
-APP_NAME=MACKs
-APP_VERSION=1.0.10
-AUTH_LOG_SIGNING_KEY=
-
-MYSQL_DATABASE=appsdb
-MYSQL_USER=rocky
-MYSQL_PASSWORD=your_password
-MYSQL_HOST=127.0.0.1
-MYSQL_PORT=3306
-
-# S3 を使う場合のみ
-USE_S3=False
-AWS_ACCESS_KEY_ID=
-AWS_SECRET_ACCESS_KEY=
-AWS_STORAGE_BUCKET_NAME=
-AWS_S3_REGION_NAME=ap-northeast-1
-
-# PDFフォント（任意: 固定フォント運用）
-NOTO_SANS_JP_FONT_PATH=
-NOTO_SERIF_JP_FONT_PATH=
-
-# Celery を使う場合のみ
-CELERY_BROKER_URL=redis://127.0.0.1:6379/0
-CELERY_RESULT_BACKEND=redis://127.0.0.1:6379/1
-```
-
-### 3) DB 初期化
-```bash
-python manage.py migrate
-python manage.py createsuperuser
-```
-
-### 4) 起動
-```bash
-python manage.py runserver
-```
-
-### 5) （任意）Celery ワーカー
-```bash
-celery -A config worker -l info
-```
-
-## 開発メモ
-- カスタムユーザー: `accounts.CustomUser`（`USERNAME_FIELD=email`）
-- テンプレート寸法は先頭ページから mm 換算して表示
-- 座標はポイント（pt）で保持し、フォーム入力では mm と相互変換
-- `DEBUG=True` では `MEDIA_URL` を Django が配信
-
-## ディレクトリ構成（抜粋）
-```text
-config/      Django 設定・URL・ASGI/WSGI・Celery
-accounts/    カスタムユーザーモデル
-projects/    ドメインモデル・フォーム・ビュー・PDFレンダラ
-templates/   画面テンプレート
-media/       アップロード先（ローカル運用時）
-```
-
-## 既知の注意点
-- 本番運用時は `DEBUG=False` + 適切な `ALLOWED_HOSTS` を設定してください。
-- `SECURE_SSL_REDIRECT=True` など HTTPS 前提の設定が有効なため、
-  リバースプロキシ配下での運用を想定しています。
+- `ADMIN_MANUAL.md` — 管理者マニュアル
