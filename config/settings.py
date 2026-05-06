@@ -130,8 +130,15 @@ CSRF_COOKIE_SAMESITE = 'Lax'
 
 CACHES = {
     'default': {
-        'BACKEND': 'django.core.cache.backends.redis.RedisCache',
-        'LOCATION': env('CACHE_URL', default='redis://localhost:6379/2'),
+        'BACKEND': 'django.core.cache.backends.locmem.LocMemCache',
+        'LOCATION': 'ppm-cache',
         'TIMEOUT': 3600,
     }
 }
+
+if env('CACHE_URL', default=''):
+    CACHES['default'] = {
+        'BACKEND': 'django.core.cache.backends.redis.RedisCache',
+        'LOCATION': env('CACHE_URL'),
+        'TIMEOUT': 3600,
+    }
