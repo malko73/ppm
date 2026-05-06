@@ -11,7 +11,7 @@ env = environ.Env(
 )
 environ.Env.read_env(BASE_DIR / '.env')
 
-SECRET_KEY = env('DJANGO_SECRET_KEY', default='***REMOVED***')
+SECRET_KEY = env('DJANGO_SECRET_KEY')
 DEBUG = env('DEBUG')
 ALLOWED_HOSTS = env.list('ALLOWED_HOSTS', default=['153.126.139.173', 'localhost', '127.0.0.1', 'ppm.y-asahi.com'])
 
@@ -64,7 +64,7 @@ DATABASES = {
         'ENGINE': 'django.db.backends.mysql',
         'NAME': env('MYSQL_DATABASE', default='appsdb'),
         'USER': env('MYSQL_USER', default='rocky'),
-        'PASSWORD': env('MYSQL_PASSWORD', default='***REMOVED***'),
+        'PASSWORD': env('MYSQL_PASSWORD'),
         'HOST': env('MYSQL_HOST', default='localhost'),
         'PORT': env('MYSQL_PORT', default='3306'),
         'OPTIONS': {

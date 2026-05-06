@@ -95,10 +95,6 @@ class PDFRenderService:
     _noto_font_dirs = (
         _project_root / 'fonts',
         _project_root / 'assets' / 'fonts',
-        Path('/Library/Fonts'),
-        Path('~/Library/Fonts').expanduser(),
-        Path('/usr/share/fonts'),
-        Path('/usr/local/share/fonts'),
     )
     VERTICAL_CHAR_MAP = {
         '|': '｜',
