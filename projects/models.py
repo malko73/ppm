@@ -152,6 +152,12 @@ class Page(models.Model):
 
     class Meta:
         ordering = ['order', 'id']
+        constraints = [
+            models.UniqueConstraint(
+                fields=['project', 'page_number'],
+                name='uq_page_project_page_number'
+            ),
+        ]
 
     def __str__(self) -> str:
         return f'{self.project.title} - {self.page_name or self.page_number}'
