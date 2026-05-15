@@ -27,7 +27,7 @@ PDFRenderService._noto_font_dirs を PPM/fonts/ のみに制限。
 settings.py のデフォルトパスワード値を削除し、.env必須化。
 
 ### 2.3 SECRET_KEYデフォルト値（High） ✅ 対応済み
-'***REMOVED***' を削除。openssl rand -hex 32 で生成した値を.envに設定。
+'unsafe-dev-secret-key' を削除。openssl rand -hex 32 で生成した値を.envに設定。
 
 ### 2.4 画像アップロード検証（Medium） ✅ 対応済み
 _validate_image_type() 追加。拡張子＋マジックバイトの二重検証。
