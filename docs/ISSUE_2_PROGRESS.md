@@ -76,7 +76,7 @@
 
 1. **Immediately after VPS boot** (1st terminal session):
    ```bash
-   cd /home/tadashi/ppm
+   cd /var/www/html
    bash scripts/phase1_runtime_audit.sh > /tmp/ppm_phase1_$(date +%Y%m%d_%H%M%S).txt
    ```
 
