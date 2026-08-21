@@ -11,11 +11,52 @@ set -u
 REPORT_DIR="/tmp/ppm_failure_tests_$(date +%Y%m%d_%H%M%S)"
 mkdir -p "$REPORT_DIR"
 
-echo "=========================================="
+echo "==========================================="
 echo "PPM Issue #2: Runtime Failure Gate Tests"
-echo "=========================================="
+echo "==========================================="
 echo "Report directory: $REPORT_DIR"
 echo ""
+
+# Cleanup function — ensures services are always restored to good state
+cleanup() {
+    local exit_code=$?
+    echo ""
+    echo ">>> CLEANUP: Restoring services to baseline state"
+    echo ">>> $(date '+%Y-%m-%d %H:%M:%S')"
+    
+    # Ensure Redis is running
+    if ! systemctl is-active --quiet redis; then
+        echo "[CLEANUP] Starting Redis..."
+        sudo systemctl start redis
+        sleep 2
+    fi
+    
+    # Ensure Celery is running
+    if ! systemctl is-active --quiet celery-ppm; then
+        echo "[CLEANUP] Starting Celery..."
+        sudo systemctl start celery-ppm
+        sleep 3
+    fi
+    
+    # Ensure Apache is running
+    if ! systemctl is-active --quiet httpd; then
+        echo "[CLEANUP] Starting Apache..."
+        sudo systemctl reload httpd
+        sleep 2
+    fi
+    
+    echo "[CLEANUP] Baseline services restored"
+    
+    # Verify all services are active
+    systemctl is-active redis > /dev/null && echo "[OK] redis" || echo "[FAIL] redis"
+    systemctl is-active celery-ppm > /dev/null && echo "[OK] celery-ppm" || echo "[FAIL] celery-ppm"
+    systemctl is-active httpd > /dev/null && echo "[OK] httpd" || echo "[FAIL] httpd"
+    
+    exit $exit_code
+}
+
+# Register cleanup trap for EXIT signal
+trap cleanup EXIT
 
 # Helper functions
 log_section() {
