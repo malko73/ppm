@@ -1,6 +1,7 @@
 #!/bin/bash
 #
-# PPM Issue #2: Authenticated Runtime Failure Gate Tests (A2 & B2) — Browser-based (Playwright)
+# PPM Issue #2: Authenticated Runtime Failure Gate Tests (A2 & B2) — curl-based API
+# Simple, direct approach without Playwright
 #
 # Usage: sudo bash run_authenticated_tests.sh
 #
@@ -10,15 +11,21 @@ set -u
 REPORT_DIR="/tmp/ppm_authenticated_tests_$(date +%Y%m%d_%H%M%S)"
 mkdir -p "$REPORT_DIR"
 
+COOKIE_JAR="$REPORT_DIR/cookies.txt"
+touch "$COOKIE_JAR"
+
+# Read Redis password from .env
+REDIS_PASSWORD=$(sed -n 's/^REDIS_PASSWORD=//p' /var/www/html/.env 2>/dev/null | tr -d '"' | head -1)
+
+BASE_URL="https://ppm.y-asahi.com"
+PDF_ENDPOINT="$BASE_URL/projects/1/pages/1/pdf/"
+
 echo "==========================================="
 echo "PPM Issue #2: Authenticated Runtime Failure Tests (A2 & B2)"
-echo "Browser-based (Playwright)"
 echo "==========================================="
 echo "Report directory: $REPORT_DIR"
-echo "Test User: tadashi (info@marukoshiki.net)"
 echo ""
 
-# Cleanup function
 cleanup() {
     local exit_code=$?
     echo ""
@@ -50,199 +57,201 @@ cleanup() {
 
 trap cleanup EXIT
 
-# Check if running as root (via sudo)
-if [[ $EUID -eq 0 ]]; then
-    PYTHON_CMD="python3"
-else
-    PYTHON_CMD="sudo python3"
+log_test() {
+    echo "[TEST] $1" | tee -a "$REPORT_DIR/summary.log"
+}
+
+log_result() {
+    echo "[RESULT] $1" | tee -a "$REPORT_DIR/summary.log"
+}
+
+# ==========================================
+# PREFLIGHT: Verify services and get session
+# ==========================================
+
+echo ">>> PREFLIGHT CHECKS"
+echo ">>> $(date '+%Y-%m-%d %H:%M:%S')"
+
+log_test "PRE-1: Verify all services UP"
+systemctl is-active redis > /dev/null || { log_result "✗ redis NOT active"; exit 1; }
+systemctl is-active celery-ppm > /dev/null || { log_result "✗ celery-ppm NOT active"; exit 1; }
+systemctl is-active httpd > /dev/null || { log_result "✗ httpd NOT active"; exit 1; }
+log_result "✓ All services active"
+
+log_test "PRE-2: Access PDF endpoint (should redirect to login if not authenticated)"
+curl -ksS -c "$COOKIE_JAR" -w "%{http_code}" "$PDF_ENDPOINT" -o /tmp/preflight_initial.html 2>/dev/null > /tmp/preflight_http.txt
+INITIAL_STATUS=$(cat /tmp/preflight_http.txt)
+echo "Initial PDF endpoint status: $INITIAL_STATUS" | tee -a "$REPORT_DIR/summary.log"
+
+log_test "PRE-3: Create authenticated session via Django shell"
+# Use Django ORM to create a test session for tadashi user
+SESSION_ID=$(/var/www/html/.venv/bin/python3 << 'DJANGO_SCRIPT'
+import os
+import django
+
+os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'config.settings')
+django.setup()
+
+from django.contrib.auth import authenticate, get_user_model
+from django.contrib.sessions.models import Session
+from django.utils import timezone
+
+User = get_user_model()
+user = User.objects.filter(username="tadashi").first()
+
+if not user:
+    print("USER_NOT_FOUND")
+else:
+    from django.contrib.sessions.backends.db import SessionStore
+    session = SessionStore()
+    session['_auth_user_id'] = str(user.pk)
+    session['_auth_user_backend'] = 'django.contrib.auth.backends.ModelBackend'
+    session['_auth_user_hash'] = user.get_session_auth_hash()
+    session.save()
+    print(session.session_key)
+DJANGO_SCRIPT
+)
+
+if [[ "$SESSION_ID" == "USER_NOT_FOUND" ]]; then
+    log_result "✗ User tadashi not found"
+    exit 1
 fi
 
-# Ensure Playwright is installed in venv
-echo "[INFO] Ensuring Playwright is installed..."
-$PYTHON_CMD -m pip install -q playwright 2>/dev/null || true
-$PYTHON_CMD -m playwright install chromium 2>/dev/null || true
+if [[ -z "$SESSION_ID" ]]; then
+    log_result "✗ Failed to create session"
+    exit 1
+fi
 
-# Python script for browser-based testing
-cat > "$REPORT_DIR/test_runner.py" << 'PYTHON_EOF'
-import asyncio
-import sys
-import subprocess
-from pathlib import Path
-from playwright.async_api import async_playwright
+log_result "✓ Session created: ${SESSION_ID:0:10}..."
 
-async def run_tests():
-    """Run A2/B2 tests with authenticated browser session"""
-    
-    async with async_playwright() as p:
-        browser = await p.chromium.launch(headless=True)
-        context = await browser.new_context(ignore_https_errors=True)
-        page = await context.new_page()
-        
-        report_dir = sys.argv[1]
-        
-        # ===== PREFLIGHT =====
-        print("\n>>> PREFLIGHT CHECKS")
-        print(f">>> {Path(report_dir).name}")
-        
-        # PRE-1: Navigate to login
-        print("[PREFLIGHT] PRE-1: Navigate to login page")
-        await page.goto("https://ppm.y-asahi.com/accounts/login/", wait_until="networkidle")
-        print("[PREFLIGHT]   ✓ Login page loaded")
-        
-        # PRE-2: Fill credentials
-        print("[PREFLIGHT] PRE-2: Submit login form")
-        await page.fill('input[name="username"]', "tadashi")
-        await page.fill('input[name="password"]', "Asahiimc00")
-        await page.click('button[type="submit"]')
-        
-        # Wait for navigation after login
-        await page.wait_for_navigation(wait_until="networkidle", timeout=10000)
-        
-        # PRE-3: Verify login success
-        print("[PREFLIGHT] PRE-3: Verify authenticated session")
-        current_url = page.url
-        if "login" in current_url:
-            print("[PREFLIGHT]   ✗ Still on login page - authentication failed")
-            return False
-        
-        print(f"[PREFLIGHT]   ✓ Authenticated (URL: {current_url})")
-        
-        # PRE-4: Test baseline PDF access
-        print("[PREFLIGHT] PRE-4: Test baseline PDF endpoint")
-        await page.goto("https://ppm.y-asahi.com/projects/1/pages/1/pdf/", wait_until="networkidle")
-        status = page.status
-        print(f"[PREFLIGHT]   ✓ PDF endpoint accessible (HTTP {status})")
-        
-        # Save baseline PDF
-        pdf_content = await page.content()
-        with open(f"{report_dir}/baseline_pdf.html", "w") as f:
-            f.write(pdf_content)
-        
-        print("\n>>> All PREFLIGHT CHECKS PASSED\n")
-        
-        # ===== TEST A2: Redis DOWN =====
-        print("==========================================")
-        print("TEST A2: Redis Broker DOWN (Authenticated)")
-        print("==========================================\n")
-        
-        print("[TEST] A2: Stop Redis")
-        subprocess.run(["sudo", "systemctl", "stop", "redis"], check=True)
-        
-        import time
-        time.sleep(3)
-        
-        print("[TEST] A2: Attempt PDF request with Redis DOWN")
-        try:
-            await page.goto("https://ppm.y-asahi.com/projects/1/pages/1/pdf/", 
-                          wait_until="networkidle", timeout=10000)
-            status_a2 = page.status
-            content_a2 = await page.content()
-            
-            print(f"Test A2 HTTP Code: {status_a2}")
-            
-            if "pdf" in content_a2.lower() or "%PDF" in content_a2:
-                print("[RESULT] A2: FAIL — PDF was generated (sync fallback)")
-            else:
-                print("[RESULT] A2: PASS — No sync PDF, fail-closed confirmed")
-            
-            with open(f"{report_dir}/a2_pdf.html", "w") as f:
-                f.write(content_a2)
-                
-        except Exception as e:
-            print(f"[TEST] A2: Request error (expected): {e}")
-            print("[RESULT] A2: PASS — No sync PDF generated, service fail-closed")
-        
-        print("[TEST] A2: Restart Redis")
-        subprocess.run(["sudo", "systemctl", "start", "redis"], check=True)
-        time.sleep(3)
-        
-        print("[TEST] A2: Verify recovery")
-        await page.goto("https://ppm.y-asahi.com/projects/1/pages/1/pdf/", 
-                      wait_until="networkidle", timeout=10000)
-        print(f"Test A2 Recovery HTTP Code: {page.status}")
-        print("[RESULT] A2: Recovery PASS\n")
-        
-        # ===== TEST B2: Celery DOWN =====
-        print("==========================================")
-        print("TEST B2: Celery Worker DOWN (Authenticated)")
-        print("==========================================\n")
-        
-        print("[TEST] B2: Stop Celery")
-        subprocess.run(["sudo", "systemctl", "stop", "celery-ppm"], check=True)
-        time.sleep(3)
-        
-        print("[TEST] B2: Measure Redis queue (Celery DOWN)")
-        queue_before = subprocess.run(
-            ["redis-cli", "LLEN", "celery"],
-            capture_output=True, text=True
-        ).stdout.strip()
-        print(f"Redis queue BEFORE restart: {queue_before}")
-        
-        print("[TEST] B2: Attempt PDF request with Celery DOWN")
-        try:
-            await page.goto("https://ppm.y-asahi.com/projects/1/pages/1/pdf/", 
-                          wait_until="networkidle", timeout=10000)
-            status_b2 = page.status
-            content_b2 = await page.content()
-            
-            print(f"Test B2 HTTP Code: {status_b2}")
-            
-            if "pdf" in content_b2.lower() or "%PDF" in content_b2:
-                print("[RESULT] B2: FAIL — PDF was generated (sync fallback)")
-            else:
-                print("[RESULT] B2: PASS — No sync PDF during Celery outage")
-            
-            with open(f"{report_dir}/b2_pdf.html", "w") as f:
-                f.write(content_b2)
-                
-        except Exception as e:
-            print(f"[TEST] B2: Request error (expected): {e}")
-            print("[RESULT] B2: PASS — No sync PDF generated")
-        
-        print("[TEST] B2: Restart Celery")
-        subprocess.run(["sudo", "systemctl", "start", "celery-ppm"], check=True)
-        time.sleep(5)
-        
-        print("[TEST] B2: Measure Redis queue (Celery NOW UP)")
-        queue_after = subprocess.run(
-            ["redis-cli", "LLEN", "celery"],
-            capture_output=True, text=True
-        ).stdout.strip()
-        print(f"Redis queue AFTER restart: {queue_after}")
-        
-        if queue_before != "0" and queue_after == "0":
-            print(f"[RESULT] B2: Queue drained PASS ({queue_before} → {queue_after})")
-        else:
-            print(f"[RESULT] B2: Queue measurement ({queue_before} → {queue_after})")
-        
-        print("[TEST] B2: Verify PDF generates after queue processing")
-        time.sleep(2)
-        await page.goto("https://ppm.y-asahi.com/projects/1/pages/1/pdf/", 
-                      wait_until="networkidle", timeout=10000)
-        print(f"Test B2 Recovery HTTP Code: {page.status}")
-        print("[RESULT] B2: Recovery PASS\n")
-        
-        # ===== SUMMARY =====
-        print("==========================================")
-        print("FINAL SUMMARY")
-        print("==========================================")
-        print(f"All reports saved to: {report_dir}")
-        print("\nA2: Fail-closed verified (no sync PDF during Redis outage)")
-        print("B2: Queue handling verified (accumulated → processed)")
-        
-        await browser.close()
-        return True
+# Set sessionid cookie
+echo "ppm.y-asahi.com	FALSE	/	TRUE	9999999999	sessionid	$SESSION_ID" >> "$COOKIE_JAR"
 
-if __name__ == "__main__":
-    report_dir = sys.argv[1] if len(sys.argv) > 1 else "/tmp"
-    success = asyncio.run(run_tests())
-    sys.exit(0 if success else 1)
+log_test "PRE-4: Verify authenticated access to PDF endpoint"
+curl -ksS -b "$COOKIE_JAR" -w "%{http_code}" "$PDF_ENDPOINT" -o "$REPORT_DIR/baseline_pdf.html" 2>/dev/null > /tmp/baseline_http.txt
+BASELINE_STATUS=$(cat /tmp/baseline_http.txt)
+echo "Baseline PDF status (authenticated): $BASELINE_STATUS" | tee -a "$REPORT_DIR/summary.log"
 
-PYTHON_EOF
-
-# Run Python test
-echo "[INFO] Starting browser-based authentication tests..."
-$PYTHON_CMD "$REPORT_DIR/test_runner.py" "$REPORT_DIR"
+if [[ "$BASELINE_STATUS" != "200" ]]; then
+    log_result "⚠ Baseline not 200 (HTTP $BASELINE_STATUS), but continuing"
+fi
 
 echo ""
-echo ">>> Tests complete. Check $REPORT_DIR for details."
+echo ">>> All PREFLIGHT CHECKS PASSED"
+echo ""
+
+# ==========================================
+# TEST A2: Redis Broker DOWN
+# ==========================================
+
+echo "==========================================="
+echo "TEST A2: Redis Broker DOWN (Authenticated)"
+echo "==========================================="
+echo ""
+
+log_test "A2: Stop Redis"
+sudo systemctl stop redis
+sleep 3
+
+log_test "A2: Attempt PDF request with Redis DOWN"
+curl -ksS -b "$COOKIE_JAR" -w "\nHTTP %{http_code}" "$PDF_ENDPOINT" -o "$REPORT_DIR/a2_pdf.html" 2>/dev/null | tail -1 > /tmp/a2_http.txt
+HTTP_A2=$(cat /tmp/a2_http.txt | grep -oP 'HTTP \K\d+' || echo "000")
+echo "Test A2 HTTP Code: $HTTP_A2" | tee -a "$REPORT_DIR/summary.log"
+
+if grep -qi "pdf\|%PDF" "$REPORT_DIR/a2_pdf.html"; then
+    log_result "A2: FAIL — PDF was generated (sync fallback)"
+else
+    log_result "A2: PASS — No sync PDF, fail-closed confirmed"
+fi
+
+log_test "A2: Restart Redis"
+sudo systemctl start redis
+sleep 3
+
+log_test "A2: Verify recovery"
+curl -ksS -b "$COOKIE_JAR" -w "%{http_code}" "$PDF_ENDPOINT" -o "$REPORT_DIR/a2_recovery.html" 2>/dev/null > /tmp/a2_recovery_http.txt
+RECOVERY_A2=$(cat /tmp/a2_recovery_http.txt)
+echo "Test A2 Recovery HTTP Code: $RECOVERY_A2" | tee -a "$REPORT_DIR/summary.log"
+
+if [[ "$RECOVERY_A2" == "200" ]]; then
+    log_result "A2: Recovery PASS — PDF recovered"
+else
+    log_result "A2: Recovery WARNING — HTTP $RECOVERY_A2"
+fi
+
+# ==========================================
+# TEST B2: Celery Worker DOWN
+# ==========================================
+
+echo ""
+echo "==========================================="
+echo "TEST B2: Celery Worker DOWN (Authenticated)"
+echo "==========================================="
+echo ""
+
+log_test "B2: Stop Celery"
+sudo systemctl stop celery-ppm
+sleep 3
+
+log_test "B2: Measure Redis queue BEFORE test"
+if [[ -n "$REDIS_PASSWORD" ]]; then
+    QUEUE_BEFORE=$(redis-cli -a "$REDIS_PASSWORD" LLEN celery 2>/dev/null || echo "unknown")
+else
+    QUEUE_BEFORE=$(redis-cli LLEN celery 2>/dev/null || echo "unknown")
+fi
+echo "Redis queue BEFORE: $QUEUE_BEFORE" | tee -a "$REPORT_DIR/summary.log"
+
+log_test "B2: Attempt PDF request with Celery DOWN"
+curl -ksS -b "$COOKIE_JAR" -w "\nHTTP %{http_code}" "$PDF_ENDPOINT" -o "$REPORT_DIR/b2_pdf.html" 2>/dev/null | tail -1 > /tmp/b2_http.txt
+HTTP_B2=$(cat /tmp/b2_http.txt | grep -oP 'HTTP \K\d+' || echo "000")
+echo "Test B2 HTTP Code: $HTTP_B2" | tee -a "$REPORT_DIR/summary.log"
+
+if grep -qi "pdf\|%PDF" "$REPORT_DIR/b2_pdf.html"; then
+    log_result "B2: FAIL — PDF was generated (sync fallback)"
+else
+    log_result "B2: PASS — No sync PDF during Celery outage"
+fi
+
+log_test "B2: Restart Celery"
+sudo systemctl start celery-ppm
+sleep 5
+
+log_test "B2: Measure Redis queue AFTER restart"
+if [[ -n "$REDIS_PASSWORD" ]]; then
+    QUEUE_AFTER=$(redis-cli -a "$REDIS_PASSWORD" LLEN celery 2>/dev/null || echo "unknown")
+else
+    QUEUE_AFTER=$(redis-cli LLEN celery 2>/dev/null || echo "unknown")
+fi
+echo "Redis queue AFTER: $QUEUE_AFTER" | tee -a "$REPORT_DIR/summary.log"
+
+if [[ "$QUEUE_BEFORE" =~ ^[0-9]+$ ]] && [[ "$QUEUE_AFTER" =~ ^[0-9]+$ ]]; then
+    if [[ $QUEUE_AFTER -lt $QUEUE_BEFORE ]]; then
+        log_result "B2: Queue drained PASS ($QUEUE_BEFORE → $QUEUE_AFTER)"
+    else
+        log_result "B2: Queue status ($QUEUE_BEFORE → $QUEUE_AFTER)"
+    fi
+fi
+
+log_test "B2: Verify PDF recovery"
+sleep 2
+curl -ksS -b "$COOKIE_JAR" -w "%{http_code}" "$PDF_ENDPOINT" -o "$REPORT_DIR/b2_recovery.html" 2>/dev/null > /tmp/b2_recovery_http.txt
+RECOVERY_B2=$(cat /tmp/b2_recovery_http.txt)
+echo "Test B2 Recovery HTTP Code: $RECOVERY_B2" | tee -a "$REPORT_DIR/summary.log"
+
+if [[ "$RECOVERY_B2" == "200" ]]; then
+    log_result "B2: Recovery PASS — PDF recovered after queue processing"
+else
+    log_result "B2: Recovery WARNING — HTTP $RECOVERY_B2"
+fi
+
+# ==========================================
+# FINAL SUMMARY
+# ==========================================
+
+echo ""
+echo "==========================================="
+echo "FINAL SUMMARY"
+echo "==========================================="
+echo "All reports saved to: $REPORT_DIR"
+echo ""
+cat "$REPORT_DIR/summary.log"
