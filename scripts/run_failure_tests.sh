@@ -80,7 +80,7 @@ systemctl status celery-ppm --no-pager | grep "Active:" | tee "$REPORT_DIR/basel
 systemctl status httpd --no-pager | grep "Active:" | tee "$REPORT_DIR/baseline_httpd.log"
 
 log_test "C: Normal PDF Generation (baseline)"
-curl -s -i https://ppm.y-asahi.com/projects/1/pages/1/pdf/ 2>&1 | head -15 > "$REPORT_DIR/test_c_baseline.txt"
+curl -s -i -k https://ppm.y-asahi.com/projects/1/pages/1/pdf/ 2>&1 | head -15 > "$REPORT_DIR/test_c_baseline.txt"
 HTTP_CODE=$(grep "HTTP" "$REPORT_DIR/test_c_baseline.txt" | head -1 | awk '{print $2}')
 echo "Baseline HTTP code: $HTTP_CODE (expected: 200 or 302)" | tee -a "$REPORT_DIR/summary.log"
 
@@ -104,7 +104,7 @@ log_test "A: Verify Redis is DOWN"
 redis-cli ping 2>&1 | tee -a "$REPORT_DIR/test_a_redis_down_verify.log" || echo "Redis: Connection refused (expected)" | tee -a "$REPORT_DIR/test_a_redis_down_verify.log"
 
 log_test "A: Attempt PDF request with Redis DOWN"
-curl -v -i https://ppm.y-asahi.com/projects/1/pages/1/pdf/ 2>&1 | tee "$REPORT_DIR/test_a_pdf_request.log"
+curl -v -i -k https://ppm.y-asahi.com/projects/1/pages/1/pdf/ 2>&1 | tee "$REPORT_DIR/test_a_pdf_request.log"
 HTTP_CODE_A=$(grep "^HTTP" "$REPORT_DIR/test_a_pdf_request.log" | head -1 | awk '{print $2}')
 echo "Test A HTTP Code: $HTTP_CODE_A" | tee -a "$REPORT_DIR/summary.log"
 
@@ -130,7 +130,7 @@ sudo systemctl start redis 2>&1 | tee "$REPORT_DIR/test_a_redis_start.log"
 sleep 3
 
 log_test "A: Verify PDF works again (Redis recovered)"
-curl -s -i https://ppm.y-asahi.com/projects/1/pages/1/pdf/ 2>&1 | head -15 > "$REPORT_DIR/test_a_recovery.txt"
+curl -s -i -k https://ppm.y-asahi.com/projects/1/pages/1/pdf/ 2>&1 | head -15 > "$REPORT_DIR/test_a_recovery.txt"
 HTTP_CODE_A_RECOVERY=$(grep "HTTP" "$REPORT_DIR/test_a_recovery.txt" | head -1 | awk '{print $2}')
 echo "Test A Recovery HTTP Code: $HTTP_CODE_A_RECOVERY (expected: 200)" | tee -a "$REPORT_DIR/summary.log"
 
@@ -154,7 +154,7 @@ log_test "B: Verify Celery is DOWN"
 sudo systemctl is-active celery-ppm 2>&1 | tee "$REPORT_DIR/test_b_celery_down_verify.log"
 
 log_test "B: Attempt PDF request with Celery DOWN (Redis UP)"
-curl -v -i https://ppm.y-asahi.com/projects/1/pages/1/pdf/ 2>&1 | tee "$REPORT_DIR/test_b_pdf_request.log"
+curl -v -i -k https://ppm.y-asahi.com/projects/1/pages/1/pdf/ 2>&1 | tee "$REPORT_DIR/test_b_pdf_request.log"
 HTTP_CODE_B=$(grep "^HTTP" "$REPORT_DIR/test_b_pdf_request.log" | head -1 | awk '{print $2}')
 echo "Test B HTTP Code: $HTTP_CODE_B (expected: 200 enqueue, but NOT PDF)" | tee -a "$REPORT_DIR/summary.log"
 
@@ -181,7 +181,7 @@ sudo systemctl start celery-ppm 2>&1 | tee "$REPORT_DIR/test_b_celery_start.log"
 sleep 5
 
 log_test "B: Verify queued task processes after Celery restart"
-curl -s -i https://ppm.y-asahi.com/projects/1/pages/1/pdf/ 2>&1 | head -15 > "$REPORT_DIR/test_b_recovery.txt"
+curl -s -i -k https://ppm.y-asahi.com/projects/1/pages/1/pdf/ 2>&1 | head -15 > "$REPORT_DIR/test_b_recovery.txt"
 HTTP_CODE_B_RECOVERY=$(grep "HTTP" "$REPORT_DIR/test_b_recovery.txt" | head -1 | awk '{print $2}')
 echo "Test B Recovery HTTP Code: $HTTP_CODE_B_RECOVERY (expected: 200)" | tee -a "$REPORT_DIR/summary.log"
 
@@ -201,7 +201,7 @@ free -h | tee "$REPORT_DIR/test_c_memory_before.log"
 
 log_test "C: Launch 5 parallel PDF requests"
 for i in {1..5}; do
-    curl -s https://ppm.y-asahi.com/projects/1/pages/$i/pdf/ > /dev/null &
+    curl -s -k https://ppm.y-asahi.com/projects/$i/pages/1/pdf/ > /dev/null &
     sleep 0.5
 done
 echo "5 requests launched, waiting for completion..." | tee -a "$REPORT_DIR/summary.log"
