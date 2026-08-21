@@ -38,17 +38,9 @@ def health_ready(request):
     
     # Check Celery broker (Redis) connectivity
     try:
-        import redis
-        from django.conf import settings
-        
-        # Parse CELERY_BROKER_URL to get Redis connection details
-        broker_url = settings.CELERY_BROKER_URL
-        # redis://localhost:6379/0 or redis://[password]@localhost:6379/0
-        
-        if broker_url.startswith('redis://'):
-            # Simple Redis connection test
-            r = redis.StrictRedis.from_url(broker_url, decode_responses=True)
-            r.ping()
+        from celery import current_app
+        # Try to ping the broker
+        current_app.connection_or_acquire().connection.connect()
     except Exception as e:
         result["redis"] = "error"
         result["celery"] = "error"
