@@ -1,0 +1,85 @@
+{# Finalize Confirmation Modal Component #}
+{# Used to confirm page finalization/unfinalizeization #}
+
+<div class="modal fade" id="finalizeConfirmationModal" tabindex="-1" aria-labelledby="finalizeModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content border-0 shadow-lg">
+            <div class="modal-header border-0 pb-0">
+                <h5 class="modal-title" id="finalizeModalLabel">確認</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body py-4">
+                <div id="finalizeMessage" class="text-center"></div>
+            </div>
+            <div class="modal-footer border-0 pt-0">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">
+                    キャンセル
+                </button>
+                <form id="finalizeForm" method="post" style="display: inline;">
+                    {% csrf_token %}
+                    <button type="submit" id="confirmButton" class="btn btn-primary">
+                        確認
+                    </button>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+function showFinalizeConfirmation(pageId, pageName, currentProjectId, willFinalize) {
+    const modal = new bootstrap.Modal(document.getElementById('finalizeConfirmationModal'));
+    const form = document.getElementById('finalizeForm');
+    const title = document.getElementById('finalizeModalLabel');
+    const message = document.getElementById('finalizeMessage');
+    const confirmBtn = document.getElementById('confirmButton');
+    
+    if (willFinalize) {
+        title.textContent = '校了にする';
+        message.innerHTML = `
+            <p class="mb-2">
+                <strong>${pageName}</strong>を校了にしますか？
+            </p>
+            <p class="text-muted small mb-0">
+                このページの入力内容が確定されます。<br>
+                後から編集する場合は、ページを開いて再度編集してください。
+            </p>
+        `;
+        confirmBtn.textContent = '校了にする';
+        confirmBtn.className = 'btn btn-success';
+    } else {
+        title.textContent = '未校了に戻す';
+        message.innerHTML = `
+            <p class="mb-2">
+                <strong>${pageName}</strong>を未校了に戻しますか？
+            </p>
+            <p class="text-muted small mb-0">
+                このページが再度編集対象になります。
+            </p>
+        `;
+        confirmBtn.textContent = '未校了に戻す';
+        confirmBtn.className = 'btn btn-warning';
+    }
+    
+    form.action = `/projects/${currentProjectId}/pages/${pageId}/finalized/`;
+    modal.show();
+}
+</script>
+
+<style>
+#finalizeConfirmationModal .modal-body {
+    min-height: 120px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+#finalizeMessage p {
+    margin-bottom: 0.5rem;
+}
+
+#finalizeMessage strong {
+    font-weight: 600;
+    color: var(--ppm-primary);
+}
+</style>

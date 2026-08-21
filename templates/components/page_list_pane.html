@@ -32,12 +32,22 @@
                     </div>
                 </div>
 
-                {# Status Badge #}
+                {# Status Badge - Clickable #}
                 <div class="me-3">
                     {% if page.is_finalized %}
-                        <span class="badge bg-success">✓ 校了</span>
+                        <button class="btn btn-sm badge bg-success" 
+                                type="button"
+                                onclick="showFinalizeConfirmation({{ page.pk }}, '{{ page.name|escapejs }}', {{ project.pk }}, false)"
+                                style="cursor: pointer; border: none; padding: 0.375rem 0.75rem; font-weight: 500;">
+                            ✓ 校了
+                        </button>
                     {% else %}
-                        <span class="badge bg-warning text-dark">● 未校了</span>
+                        <button class="btn btn-sm badge bg-warning text-dark" 
+                                type="button"
+                                onclick="showFinalizeConfirmation({{ page.pk }}, '{{ page.name|escapejs }}', {{ project.pk }}, true)"
+                                style="cursor: pointer; border: none; padding: 0.375rem 0.75rem; font-weight: 500;">
+                            ● 未校了
+                        </button>
                     {% endif %}
                 </div>
 
