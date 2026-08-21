@@ -16,7 +16,7 @@ def health_live(request):
 def health_ready(request):
     """
     Readiness probe.
-    Checks critical dependencies: database, Redis, Celery broker.
+    Checks critical dependencies: database and Celery broker (Redis).
     Returns 200 if all healthy, 503 if any dependency unavailable.
     """
     result = {
@@ -36,12 +36,19 @@ def health_ready(request):
         result["database"] = "error"
         status_code = 503
     
-    # Check Redis connectivity (Celery broker)
+    # Check Celery broker (Redis) connectivity
     try:
-        from django.core.cache import cache
-        # Try to set and get a value from cache (Redis)
-        cache.set('_health_check', 'ok', 10)
-        cache.get('_health_check')
+        import redis
+        from django.conf import settings
+        
+        # Parse CELERY_BROKER_URL to get Redis connection details
+        broker_url = settings.CELERY_BROKER_URL
+        # redis://localhost:6379/0 or redis://[password]@localhost:6379/0
+        
+        if broker_url.startswith('redis://'):
+            # Simple Redis connection test
+            r = redis.StrictRedis.from_url(broker_url, decode_responses=True)
+            r.ping()
     except Exception as e:
         result["redis"] = "error"
         result["celery"] = "error"
