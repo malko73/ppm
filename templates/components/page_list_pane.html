@@ -1,0 +1,107 @@
+{# Simplified Page List Component for 2-Pane Layout #}
+{# Required context: pages, project #}
+
+<div class="page-list-pane card border-start border-3 border-secondary">
+    <div class="card-header bg-light d-flex justify-content-between align-items-center">
+        <h5 class="mb-0">ページ一覧</h5>
+        <small class="text-muted">{{ pages|length }} ページ</small>
+    </div>
+    <div class="card-body p-0" style="max-height: 600px; overflow-y: auto;">
+        {% if pages %}
+        <div id="sortable-pages" class="list-group list-group-flush">
+            {% for page in pages %}
+            <div class="list-group-item d-flex align-items-center justify-content-between py-3 px-3 page-list-item" 
+                 data-page-id="{{ page.id }}"
+                 hx-get="{% url 'page_preview' page.pk %}"
+                 hx-target=".page-preview-pane"
+                 style="cursor: pointer; transition: background-color 0.15s;">
+                
+                <div class="d-flex align-items-center flex-grow-1">
+                    {# Drag Handle #}
+                    <span class="drag-handle me-2" style="cursor: grab; color: #999;">☰</span>
+
+                    {# Page Number #}
+                    <span class="badge bg-light text-dark me-2" style="font-weight: 600; font-size: 0.875rem;">
+                        P.{{ page.get_page_number_display }}
+                    </span>
+
+                    {# Page Info #}
+                    <div class="flex-grow-1">
+                        <div class="font-weight-500">{{ page.name }}</div>
+                        <div class="text-muted small">{{ page.template_name|default:'テンプレートなし' }}</div>
+                    </div>
+                </div>
+
+                {# Status Badge #}
+                <div class="me-3">
+                    {% if page.is_finalized %}
+                        <span class="badge bg-success">✓ 校了</span>
+                    {% else %}
+                        <span class="badge bg-warning text-dark">● 未校了</span>
+                    {% endif %}
+                </div>
+
+                {# Actions Menu #}
+                <div class="dropdown">
+                    <button class="btn btn-sm btn-link text-muted" type="button" data-bs-toggle="dropdown" aria-expanded="false">
+                        ⋮
+                    </button>
+                    <ul class="dropdown-menu dropdown-menu-end">
+                        <li>
+                            <a class="dropdown-item" href="{% url 'page_update' page.pk %}">
+                                編集
+                            </a>
+                        </li>
+                        <li>
+                            <a class="dropdown-item" href="{% url 'page_pdf' page.pk %}" target="_blank" rel="noopener noreferrer">
+                                PDFを開く
+                            </a>
+                        </li>
+                        <li>
+                            <form method="post" action="{% url 'page_toggle_finalized' project.pk page.pk %}" class="d-inline">
+                                {% csrf_token %}
+                                {% if page.is_finalized %}
+                                    <button type="submit" class="dropdown-item" style="color: inherit;">未校了に戻す</button>
+                                {% else %}
+                                    <button type="submit" class="dropdown-item" style="color: inherit;">校了にする</button>
+                                {% endif %}
+                            </form>
+                        </li>
+                        <li><hr class="dropdown-divider"></li>
+                        <li>
+                            <a class="dropdown-item text-danger" href="{% url 'page_delete' page.pk %}">
+                                削除
+                            </a>
+                        </li>
+                    </ul>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+        {% else %}
+        <div class="p-3 text-center text-muted">
+            <p class="mb-0">ページがまだ追加されていません</p>
+        </div>
+        {% endif %}
+    </div>
+</div>
+
+<style>
+.page-list-item:hover {
+    background-color: #f8f9fa !important;
+}
+
+.page-list-item.selected {
+    background-color: #e7f3ff !important;
+    border-left: 3px solid #0d6efd;
+}
+
+.drag-handle:hover {
+    color: #666 !important;
+    cursor: grab;
+}
+
+.drag-handle:active {
+    cursor: grabbing;
+}
+</style>

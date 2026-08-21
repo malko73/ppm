@@ -1,0 +1,275 @@
+/* PPM Project Detail Redesign CSS */
+/* 2-Pane Layout + Progress Display */
+
+:root {
+    --ppm-primary: #0d6efd;
+    --ppm-success: #198754;
+    --ppm-danger: #dc3545;
+    --ppm-warning: #ffc107;
+    --ppm-light: #f8f9fa;
+    --ppm-dark: #212529;
+    --ppm-muted: #6c757d;
+    --ppm-border: #dee2e6;
+}
+
+/* ===== Progress Display ===== */
+.progress-display {
+    border: none;
+    background: linear-gradient(135deg, #f8f9fa 0%, #ffffff 100%);
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+}
+
+.progress-display .progress {
+    height: 8px;
+    border-radius: 4px;
+    background-color: #e9ecef;
+}
+
+.progress-display .progress-bar {
+    background-color: var(--ppm-success);
+    border-radius: 4px;
+    transition: width 0.3s ease;
+}
+
+.progress-display .badge {
+    font-size: 0.875rem;
+    padding: 0.375rem 0.75rem;
+}
+
+/* ===== 2-Pane Layout Container ===== */
+.project-detail-container {
+    display: grid;
+    grid-template-columns: 1fr 1.2fr;
+    gap: 20px;
+    min-height: calc(100vh - 400px);
+}
+
+/* Responsive: Stack on smaller screens */
+@media (max-width: 1400px) {
+    .project-detail-container {
+        grid-template-columns: 1fr;
+        min-height: auto;
+    }
+    
+    .page-list-pane {
+        max-height: 400px;
+    }
+}
+
+/* ===== Page List Pane ===== */
+.page-list-pane {
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+}
+
+.page-list-pane .card-body {
+    flex: 1;
+    overflow-y: auto;
+}
+
+#sortable-pages {
+    margin: 0;
+}
+
+.page-list-item {
+    border-left: 3px solid transparent;
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+
+.page-list-item:hover {
+    background-color: var(--ppm-light);
+    border-left-color: var(--ppm-primary);
+}
+
+.page-list-item.selected {
+    background-color: #e7f3ff;
+    border-left-color: var(--ppm-primary);
+}
+
+.page-list-item .drag-handle {
+    user-select: none;
+    font-size: 1.1rem;
+    color: #aaa;
+    cursor: grab;
+    opacity: 0.6;
+    transition: opacity 0.2s ease;
+}
+
+.page-list-item:hover .drag-handle {
+    opacity: 1;
+    color: var(--ppm-muted);
+}
+
+.page-list-item .drag-handle:active {
+    cursor: grabbing;
+}
+
+.page-list-item .badge {
+    font-size: 0.75rem;
+    min-width: 32px;
+    text-align: center;
+}
+
+.page-list-item .dropdown-toggle::after {
+    display: none;
+}
+
+.page-list-item .btn-link {
+    text-decoration: none;
+    opacity: 0.6;
+    transition: opacity 0.2s ease;
+}
+
+.page-list-item:hover .btn-link {
+    opacity: 1;
+}
+
+/* ===== Page Preview Pane ===== */
+.page-preview-pane {
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+}
+
+.page-preview-pane .card-header {
+    border-bottom: 2px solid var(--ppm-border);
+}
+
+.preview-container {
+    background: linear-gradient(45deg, #f0f0f0 25%, transparent 25%, transparent 75%, #f0f0f0 75%, #f0f0f0),
+                linear-gradient(45deg, #f0f0f0 25%, transparent 25%, transparent 75%, #f0f0f0 75%, #f0f0f0);
+    background-size: 20px 20px;
+    background-position: 0 0, 10px 10px;
+    background-color: #e5e5e5;
+    position: relative;
+    flex: 1;
+    overflow-y: auto;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.preview-container .htmx-indicator {
+    display: none;
+}
+
+.preview-container.htmx-request .htmx-indicator {
+    display: inline-block;
+}
+
+.page-preview-pane .card-footer {
+    border-top: 1px solid var(--ppm-border);
+    padding: 0.75rem;
+}
+
+.page-preview-pane .card-footer .btn {
+    flex: 1;
+    font-size: 0.875rem;
+}
+
+/* ===== Action Bar ===== */
+.action-bar {
+    padding: 0.5rem 0;
+    border-bottom: 1px solid var(--ppm-border);
+    margin-bottom: 1rem;
+}
+
+.action-bar .btn {
+    white-space: nowrap;
+    font-size: 0.875rem;
+}
+
+.action-bar .dropdown-menu {
+    min-width: 200px;
+}
+
+.action-bar .dropdown-item {
+    padding: 0.5rem 1rem;
+    font-size: 0.875rem;
+}
+
+.action-bar .dropdown-item i {
+    margin-right: 0.5rem;
+    opacity: 0.7;
+}
+
+.action-bar .dropdown-item:hover i {
+    opacity: 1;
+}
+
+.action-bar .dropdown-header {
+    padding: 0.5rem 1rem;
+    font-size: 0.75rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--ppm-muted);
+    margin-bottom: 0;
+}
+
+/* ===== Utility Classes ===== */
+.text-status-finalized {
+    color: var(--ppm-success);
+    font-weight: 600;
+}
+
+.text-status-pending {
+    color: var(--ppm-warning);
+    font-weight: 600;
+}
+
+/* ===== Animations ===== */
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+        transform: translateY(-10px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.page-list-item {
+    animation: fadeIn 0.2s ease;
+}
+
+/* ===== Bootstrap Icon Integration ===== */
+.btn i,
+.dropdown-item i {
+    margin-right: 0.25rem;
+}
+
+/* ===== Scrollbar Styling ===== */
+.page-list-pane .card-body::-webkit-scrollbar,
+.preview-container::-webkit-scrollbar {
+    width: 6px;
+}
+
+.page-list-pane .card-body::-webkit-scrollbar-track,
+.preview-container::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.page-list-pane .card-body::-webkit-scrollbar-thumb,
+.preview-container::-webkit-scrollbar-thumb {
+    background: #ccc;
+    border-radius: 3px;
+}
+
+.page-list-pane .card-body::-webkit-scrollbar-thumb:hover,
+.preview-container::-webkit-scrollbar-thumb:hover {
+    background: #999;
+}
+
+/* ===== Print Styles ===== */
+@media print {
+    .action-bar,
+    .page-list-pane,
+    .page-preview-pane,
+    .progress-display {
+        display: none;
+    }
+}

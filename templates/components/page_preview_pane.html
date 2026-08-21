@@ -1,0 +1,49 @@
+{# Page Preview Pane Component #}
+{# Required context: selected_page (optional), pages #}
+
+<div class="page-preview-pane card border-start border-3 border-primary">
+    <div class="card-header bg-light d-flex justify-content-between align-items-center">
+        <h5 class="mb-0">ページプレビュー</h5>
+        {% if selected_page %}
+        <small class="text-muted">{{ selected_page.get_page_number_display }} / {{ pages|length }}</small>
+        {% endif %}
+    </div>
+    <div class="card-body p-0">
+        {% if selected_page %}
+            {# PDF Preview Area #}
+            <div class="preview-container" style="height: 600px; overflow-y: auto; background: #f5f5f5;">
+                <div class="d-flex align-items-center justify-content-center h-100 position-relative">
+                    {# Placeholder: PDF render would go here #}
+                    <div class="text-center text-muted">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" fill="currentColor" class="mb-3" viewBox="0 0 16 16">
+                            <path d="M5 1a2 2 0 0 1 2-2h6a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V1zm6 0a1 1 0 0 0-1 1v12a1 1 0 0 0 1 1h6a1 1 0 0 0 1-1V2a1 1 0 0 0-1-1H11z"/>
+                            <path d="M1 3a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1v12a1 1 0 0 1-1 1H2a1 1 0 0 1-1-1V3z"/>
+                        </svg>
+                        <p>{{ selected_page.name }}</p>
+                        <p class="small">{{ selected_page.template_name|default:'テンプレートなし' }}</p>
+                        <a href="{% url 'page_pdf' selected_page.pk %}" class="btn btn-sm btn-link" target="_blank" rel="noopener noreferrer">
+                            PDFプレビューを開く
+                        </a>
+                    </div>
+                </div>
+            </div>
+
+            {# Action Buttons #}
+            <div class=\"card-footer bg-white d-flex gap-2\">
+                <a href=\"{% url 'page_update' selected_page.pk %}\" class=\"btn btn-sm btn-primary\">編集する</a>
+                <a href=\"{% url 'page_pdf' selected_page.pk %}\" target=\"_blank\" rel=\"noopener noreferrer\" class=\"btn btn-sm btn-outline-primary\">PDFを開く</a>
+            </div>
+        {% else %}
+            {# No Page Selected #}
+            <div class=\"d-flex align-items-center justify-content-center\" style=\"height: 600px; background: #f9f9f9;\">
+                <div class=\"text-center text-muted\">
+                    <svg xmlns=\"http://www.w3.org/2000/svg\" width=\"48\" height=\"48\" fill=\"currentColor\" class=\"mb-2 opacity-25\" viewBox=\"0 0 16 16\">
+                        <path d=\"M1 3a1 1 0 0 1 1-1h12a1 1 0 0 1 1 1H1zm7 8a2 2 0 1 0 0-4 2 2 0 0 0 0 4z\"/>
+                        <path d=\"M0 5a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v6a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2V5zm2-1a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V5a1 1 0 0 0-1-1H2z\"/>
+                    </svg>
+                    <p class=\"mb-0\">ページを選択してください</p>
+                </div>
+            </div>
+        {% endif %}
+    </div>
+</div>

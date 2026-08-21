@@ -1,0 +1,41 @@
+{# Progress Display Component #}
+{# Required context: total_pages, finalized_pages, last_modified_str #}
+
+<div class="progress-display card mb-4 border-0 bg-light">
+    <div class="card-body">
+        {# Title + Status #}
+        <div class="d-flex justify-content-between align-items-baseline mb-3">
+            <div>
+                <h1 class="h4 mb-1">{{ project.title }}</h1>
+                <p class="text-muted mb-0 small">{{ project.description|default:'-' }}</p>
+            </div>
+            <div class="text-end">
+                <p class="mb-0"><strong>{{ finalized_pages }} / {{ total_pages }}</strong> ページ校了</p>
+                <p class="text-muted mb-0 small">最終更新 {{ last_modified_str }}</p>
+            </div>
+        </div>
+
+        {# Progress bar #}
+        <div class="progress mb-3" role="progressbar" aria-valuenow="{{ progress_percentage }}" aria-valuemin="0" aria-valuemax="100">
+            <div class="progress-bar bg-success" style="width: {{ progress_percentage }}%"></div>
+        </div>
+
+        {# Summary #}
+        <div class="row g-2">
+            <div class="col-auto">
+                <span class="badge bg-success"><strong>{{ finalized_pages }}</strong> 校了</span>
+            </div>
+            <div class="col-auto">
+                <span class="badge bg-warning"><strong>{{ unfinalized_pages }}</strong> 未校了</span>
+            </div>
+            <div class="col-auto">
+                <span class="badge bg-secondary">{{ progress_percentage }}%</span>
+            </div>
+            {% if template_size_mm %}
+            <div class="col-auto ms-auto">
+                <span class="text-muted small">テンプレートサイズ: 横{{ template_size_mm.0 }}mm / 縦{{ template_size_mm.1 }}mm</span>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+</div>

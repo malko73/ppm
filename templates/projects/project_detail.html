@@ -1,114 +1,142 @@
 {% extends 'base.html' %}
+{% load static %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="{% static 'css/project_detail_redesign.css' %}">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.0/font/bootstrap-icons.css">
+{% endblock %}
+
 {% block content %}
-<div class="d-flex justify-content-between align-items-start mb-3">
-    <div>
-        <h1 class="h3 mb-1">{{ project.title }}</h1>
-        <p class="mb-1"><span class="badge text-bg-secondary">{{ project.category|default:'未分類' }}</span></p>
-        <p class="text-muted mb-0">{{ project.description|default:'-' }}</p>
-        {% if template_size_mm %}
-        <p class="text-muted mb-0 small">既定テンプレートサイズ: 横{{ template_size_mm.0 }}mm / 縦{{ template_size_mm.1 }}mm</p>
-        {% endif %}
-    </div>
-    <div class="d-flex gap-2">
-        <a class="btn btn-outline-secondary" href="{% url 'project_list' %}">一覧へ戻る</a>
-        <form method="post" action="{% url 'project_copy' project.pk %}">
-            {% csrf_token %}
-            <button type="submit" class="btn btn-outline-dark">コピー</button>
-        </form>
-        <a class="btn btn-outline-primary" href="{% url 'project_update' project.pk %}">編集</a>
-        <a class="btn btn-outline-danger" href="{% url 'project_delete' project.pk %}">削除</a>
-    </div>
+
+{# ===== Progress Display ===== #}
+{% include 'components/progress_display.html' %}
+
+{# ===== Action Bar ===== #}
+{% include 'components/action_bar.html' %}
+
+{# ===== 2-Pane Layout ===== #}
+<div class="project-detail-container">
+    {# Left Pane: Page List #}
+    {% include 'components/page_list_pane.html' %}
+
+    {# Right Pane: Page Preview #}
+    {% include 'components/page_preview_pane.html' %}
 </div>
 
-<div class="card mb-3">
-    <div class="card-body">
-        <h2 class="h6 mb-2">テンプレート一覧</h2>
-        <ul class="mb-0">
-            {% for template in templates %}
-            <li>
-                {{ template.name }}
-                {% if template.is_default %}
-                <span class="badge bg-secondary">既定</span>
-                {% endif %}
-            </li>
-            {% empty %}
-            <li class="text-muted">テンプレートがありません</li>
-            {% endfor %}
-        </ul>
-    </div>
-</div>
-
-<div class="d-flex flex-wrap gap-2 mb-3">
-    <a class="btn btn-primary" href="{% url 'page_create' project.pk %}">ページ追加</a>
-    <a class="btn btn-success" href="{% url 'project_pdf_merged' project.pk %}" target="_blank" rel="noopener noreferrer">全ページ結合PDF（軽量）</a>
-    {% if all_pages_finalized %}
-    <a class="btn btn-secondary" href="{% url 'project_pdf_zip_start' project.pk %}">全ページZIP（印刷用350dpi）</a>
-    <a class="btn btn-outline-secondary" href="{% url 'project_pages_csv' project.pk %}">校了データCSV</a>
-    {% else %}
-    <a class="btn btn-secondary disabled" href="#" aria-disabled="true" tabindex="-1">全ページZIP（全ページ校了で有効）</a>
-    <a class="btn btn-outline-secondary disabled" href="#" aria-disabled="true" tabindex="-1">校了データCSV（全ページ校了で有効）</a>
-    {% endif %}
-    <form method="get" action="{% url 'project_csv_format' project.pk %}" class="d-flex flex-wrap gap-2 align-items-center">
-        <select name="template_id" class="form-select" style="max-width: 320px;" required>
-            <option value="">CSVフォーマット対象テンプレートを選択</option>
-            {% for template in templates %}
-            <option value="{{ template.pk }}"{% if template.is_default %} selected{% endif %}>{{ template.name }}</option>
-            {% endfor %}
-        </select>
-        <button type="submit" class="btn btn-outline-dark">プロジェクトCSVフォーマット</button>
-    </form>
-</div>
-
-<div class="card mb-3">
-    <div class="card-body">
-        <h2 class="h6 mb-2">CSVアップロード</h2>
-        <p class="small text-muted mb-2">CSVのみアップロードできます。画像ファイルはアップロードできません。先に対象テンプレートを選んでください。</p>
-        <form method="post" action="{% url 'project_csv_upload' project.pk %}" enctype="multipart/form-data" class="d-flex flex-wrap gap-2 align-items-center">
-            {% csrf_token %}
-            <select name="template_id" class="form-select" style="max-width: 320px;" required>
-                <option value="">CSV取込対象テンプレートを選択</option>
-                {% for template in templates %}
-                <option value="{{ template.pk }}"{% if template.is_default %} selected{% endif %}>{{ template.name }}</option>
-                {% endfor %}
-            </select>
-            <input type="file" name="csv_file" accept=".csv,text/csv" class="form-control" style="max-width: 420px;" required>
-            <button type="submit" class="btn btn-outline-primary">CSV取込</button>
-        </form>
+{# ===== CSV Export Modal ===== #}
+<div class="modal fade" id="csvExportModal" tabindex="-1" aria-labelledby="csvExportLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="csvExportLabel">CSVエクスポート</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <form method="get" action="{% url 'project_csv_format' project.pk %}" class="modal-body">
+                <div class="mb-3">
+                    <label for="csvTemplate" class="form-label">エクスポート対象テンプレート</label>
+                    <select name="template_id" id="csvTemplate" class="form-select" required>
+                        <option value="">テンプレートを選択</option>
+                        {% for template in templates %}
+                        <option value="{{ template.pk }}"{% if template.is_default %} selected{% endif %}>{{ template.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+            </form>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">キャンセル</button>
+                <button type="button" class="btn btn-primary" onclick="document.querySelector('#csvExportModal form').submit();">ダウンロード</button>
+            </div>
+        </div>
     </div>
 </div>
 
-<div id="page-list-wrapper">
-    {% include 'partials/page_list.html' with pages=pages %}
+{# ===== CSV Import Modal ===== #}
+<div class="modal fade" id="csvImportModal" tabindex="-1" aria-labelledby="csvImportLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="csvImportLabel">CSVインポート</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <form method="post" action="{% url 'project_csv_upload' project.pk %}" enctype="multipart/form-data">
+                {% csrf_token %}
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label for="importTemplate" class="form-label">取込対象テンプレート</label>
+                        <select name="template_id" id="importTemplate" class="form-select" required>
+                            <option value="">テンプレートを選択</option>
+                            {% for template in templates %}
+                            <option value="{{ template.pk }}"{% if template.is_default %} selected{% endif %}>{{ template.name }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label for="csvFile" class="form-label">CSVファイル</label>
+                        <input type="file" name="csv_file" id="csvFile" class="form-control" accept=".csv,text/csv" required>
+                        <div class="form-text">CSVファイルのみ対応しています。</div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">キャンセル</button>
+                    <button type="submit" class="btn btn-primary">取込</button>
+                </div>
+            </form>
+        </div>
+    </div>
 </div>
 
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Sortable/1.15.0/Sortable.min.js"></script>
 <script>
-function getCookie(name) {
-    const value = `; ${document.cookie}`;
-    const parts = value.split(`; ${name}=`);
-    if (parts.length === 2) return parts.pop().split(';').shift();
-}
-
-function initSortable() {
+document.addEventListener('DOMContentLoaded', function() {
+    // Initialize Sortable for page list
     const container = document.getElementById('sortable-pages');
-    if (!container) return;
-    Sortable.create(container, {
-        animation: 150,
-        handle: '.drag-handle',
-        onEnd: function () {
-            const order = Array.from(container.querySelectorAll('[data-page-id]')).map(el => el.dataset.pageId);
-            htmx.ajax('POST', "{% url 'page_reorder' project.pk %}", {
-                source: container,
-                target: '#page-list-wrapper',
-                swap: 'innerHTML',
-                headers: {
-                    'X-CSRFToken': getCookie('csrftoken')
-                },
-                values: {order: order.join(',')}
-            }).then(() => initSortable());
-        }
-    });
-}
+    if (container) {
+        Sortable.create(container, {
+            animation: 150,
+            handle: '.drag-handle',
+            ghostClass: 'dragging',
+            onEnd: function() {
+                const order = Array.from(container.querySelectorAll('[data-page-id]'))
+                    .map(el => el.dataset.pageId);
+                
+                // Send reorder request
+                fetch("{% url 'page_reorder' project.pk %}", {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRFToken': getCookie('csrftoken')
+                    },
+                    body: JSON.stringify({ page_order: order })
+                })
+                .catch(err => console.error('Reorder failed:', err));
+            }
+        });
+    }
 
-initSortable();
+    // Highlight selected page in list
+    const pageListItems = document.querySelectorAll('.page-list-item');
+    pageListItems.forEach(item => {
+        item.addEventListener('click', function() {
+            pageListItems.forEach(i => i.classList.remove('selected'));
+            this.classList.add('selected');
+        });
+    });
+});
+
+function getCookie(name) {
+    let cookieValue = null;
+    if (document.cookie && document.cookie !== '') {
+        const cookies = document.cookie.split(';');
+        for (let i = 0; i < cookies.length; i++) {
+            const cookie = cookies[i].trim();
+            if (cookie.substring(0, name.length + 1) === (name + '=')) {
+                cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
+                break;
+            }
+        }
+    }
+    return cookieValue;
+}
 </script>
+
 {% endblock %}

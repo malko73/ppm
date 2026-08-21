@@ -149,10 +149,27 @@ class ProjectDetailView(UserProjectMixin, DetailView):
         _ensure_project_templates(self.object)
         pages = self.object.pages.order_by('order', 'id')
         templates = self.object.templates.order_by('-is_default', 'id')
+        
+        # Progress display data
+        total_pages = pages.count()
+        finalized_pages = pages.filter(is_finalized=True).count()
+        unfinalized_pages = total_pages - finalized_pages
+        progress_percentage = int((finalized_pages / total_pages * 100)) if total_pages > 0 else 0
+        last_modified = pages.order_by('-updated_at').first()
+        last_modified_str = last_modified.updated_at.strftime('%m月%d日 %H:%M') if last_modified else '-'
+        
         context['pages'] = pages
         context['templates'] = templates
         context['template_size_mm'] = self.object.template_size_mm()
         context['all_pages_finalized'] = pages.exists() and not pages.filter(is_finalized=False).exists()
+        
+        # Progress display context
+        context['total_pages'] = total_pages
+        context['finalized_pages'] = finalized_pages
+        context['unfinalized_pages'] = unfinalized_pages
+        context['progress_percentage'] = progress_percentage
+        context['last_modified_str'] = last_modified_str
+        
         return context
 
 
