@@ -38,10 +38,10 @@ def health_ready(request):
     
     # Check Redis connectivity (Celery broker)
     try:
-        from celery import current_app
-        broker = current_app.connection()
-        broker.connect()
-        broker.close()
+        from django.core.cache import cache
+        # Try to set and get a value from cache (Redis)
+        cache.set('_health_check', 'ok', 10)
+        cache.get('_health_check')
     except Exception as e:
         result["redis"] = "error"
         result["celery"] = "error"
