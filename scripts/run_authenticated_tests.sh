@@ -57,6 +57,11 @@ else
     PYTHON_CMD="sudo python3"
 fi
 
+# Ensure Playwright is installed in venv
+echo "[INFO] Ensuring Playwright is installed..."
+$PYTHON_CMD -m pip install -q playwright 2>/dev/null || true
+$PYTHON_CMD -m playwright install chromium 2>/dev/null || true
+
 # Python script for browser-based testing
 cat > "$REPORT_DIR/test_runner.py" << 'PYTHON_EOF'
 import asyncio
