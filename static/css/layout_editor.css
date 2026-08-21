@@ -193,6 +193,36 @@
     padding-bottom: 8px;
 }
 
+.layout-properties-panel h5 {
+    margin-top: 8px;
+    margin-bottom: 12px;
+    font-size: 0.95rem;
+    color: var(--layout-primary);
+}
+
+.properties-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 16px;
+}
+
+.properties-header h4 {
+    margin-bottom: 0;
+    padding-bottom: 0;
+    border-bottom: none;
+}
+
+.grid-snap-toggle {
+    font-size: 0.85rem;
+}
+
+.grid-snap-toggle .form-check-label {
+    margin-bottom: 0;
+    cursor: pointer;
+}
+
 .property-form {
     display: flex;
     flex-direction: column;
@@ -235,6 +265,74 @@
     font-size: 0.85rem;
 }
 
+/* ===== Layer Panel ===== */
+
+.layer-panel {
+    border: 1px solid var(--layout-border);
+    border-radius: 4px;
+    padding: 8px;
+    background: var(--layout-bg);
+    max-height: 200px;
+    overflow-y: auto;
+}
+
+.layer-list {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.layer-item {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    padding: 8px;
+    background: white;
+    border: 1px solid var(--layout-border);
+    border-radius: 3px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.layer-item:hover {
+    background: #f5f5f5;
+    border-color: var(--layout-primary);
+}
+
+.layer-item.selected {
+    background: rgba(0, 102, 204, 0.1);
+    border-color: var(--layout-primary);
+    font-weight: 600;
+}
+
+.layer-type-badge {
+    min-width: 24px;
+    height: 24px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.75rem;
+    font-weight: 700;
+    border-radius: 3px;
+    color: white;
+}
+
+.layer-type-badge.text {
+    background: #0066cc;
+}
+
+.layer-type-badge.image {
+    background: #ff6600;
+}
+
+.layer-name {
+    flex: 1;
+    font-size: 0.85rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
 /* ===== Footer ===== */
 
 .layout-editor-footer {
@@ -242,13 +340,27 @@
     border-top: 1px solid var(--layout-border);
     display: flex;
     gap: 10px;
-    justify-content: flex-end;
+    justify-content: space-between;
+    align-items: center;
     background: var(--layout-bg);
     flex-shrink: 0;
 }
 
 .layout-editor-footer .btn {
     min-width: 120px;
+}
+
+.zoom-controls {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+}
+
+#zoomDisplay {
+    min-width: 50px;
+    text-align: center;
+    font-weight: 600;
+    color: var(--layout-primary);
 }
 
 /* ===== Responsive ===== */

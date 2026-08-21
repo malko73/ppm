@@ -63,9 +63,24 @@
 
         {# Properties Panel #}
         <div class="layout-properties-panel">
-            <h4>プロパティ</h4>
+            <div class="properties-header">
+                <h4>プロパティ</h4>
+                <div class="grid-snap-toggle">
+                    <label class="form-check form-check-inline">
+                        <input type="checkbox" id="gridSnapCheckbox" class="form-check-input" checked>
+                        <span class="form-check-label">Grid 1mm</span>
+                    </label>
+                </div>
+            </div>
             <div id="propertyForm" class="property-form">
                 <p class="text-muted text-center">要素を選択してください</p>
+            </div>
+            
+            <hr class="my-3">
+            
+            <h5>レイヤー</h5>
+            <div id="layerPanel" class="layer-panel">
+                <p class="text-muted small">レイヤー（配列順）</p>
             </div>
         </div>
     </div>
