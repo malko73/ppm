@@ -293,7 +293,7 @@ class PageCreateView(UserPageMixin, CreateView):
 
 class PageUpdateView(UserPageMixin, UpdateView):
     form_class = PageForm
-    template_name = 'projects/page_form.html'
+    template_name = 'projects/page_form_redesigned.html'
 
     def post(self, request, *args, **kwargs):
         self.object = self.get_object()

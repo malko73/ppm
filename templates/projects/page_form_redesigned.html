@@ -1,0 +1,169 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="{% static 'css/page_form_redesigned.css' %}">
+{% endblock %}
+
+{% block content %}
+
+<div class="page-form-wrapper">
+    {# Header #}
+    <div class="page-form-header">
+        <h2>{{ view.object.page_name|default:"新規ページ" }}</h2>
+        <div class="header-info">
+            <span class="badge bg-light text-dark" id="unsavedIndicator" style="display: none;">
+                <i class="bi bi-exclamation-circle"></i> 未保存
+            </span>
+        </div>
+    </div>
+
+    {# Main: 2-pane layout #}
+    <div class="page-form-main">
+        {# Left Pane: Input Form #}
+        <div class="form-pane">
+            <form method="post" enctype="multipart/form-data" id="pageForm">
+                {% csrf_token %}
+
+                {# Template Selection #}
+                <div class="form-section">
+                    <h4>テンプレート</h4>
+                    <div class="form-group">
+                        {{ form.project_template.label_tag }}
+                        {{ form.project_template }}
+                        <small class="form-text text-muted">
+                            テンプレートを変更するとフォーム内容がリセットされます。
+                        </small>
+                    </div>
+                </div>
+
+                {# Page Name #}
+                <div class="form-section">
+                    <h4>ページ名</h4>
+                    <div class="form-group">
+                        {{ form.page_name.label_tag }}
+                        {{ form.page_name }}
+                        {% if form.page_name.errors %}
+                        <div class="invalid-feedback d-block">
+                            {{ form.page_name.errors.0 }}
+                        </div>
+                        {% endif %}
+                    </div>
+                </div>
+
+                {# Text Fields #}
+                {% if form.text_fields_for_template %}
+                <div class="form-section">
+                    <h4>テキスト入力</h4>
+                    <div class="text-fields-group">
+                        {% for text_field in form.text_fields_for_template %}
+                        <div class="form-group">
+                            {{ text_field.label_tag }}
+                            {{ text_field }}
+                            {% if text_field.errors %}
+                            <div class="invalid-feedback d-block">
+                                {{ text_field.errors.0 }}
+                            </div>
+                            {% endif %}
+                        </div>
+                        {% endfor %}
+                    </div>
+                </div>
+                {% endif %}
+
+                {# Image Fields #}
+                {% if form.image_fields_for_template %}
+                <div class="form-section">
+                    <h4>画像入力</h4>
+                    <div class="image-fields-group">
+                        {% for image_item in form.image_fields_for_template %}
+                        <div class="form-group image-input-group">
+                            <div class="form-group">
+                                {{ image_item.image_field.label_tag }}
+                                {{ image_item.image_field }}
+                                {% if image_item.image_field.errors %}
+                                <div class="invalid-feedback d-block">
+                                    {{ image_item.image_field.errors.0 }}
+                                </div>
+                                {% endif %}
+                                {% if image_item.image_field.help_text %}
+                                <small class="form-text text-muted">
+                                    {{ image_item.image_field.help_text|safe }}
+                                </small>
+                                {% endif %}
+                            </div>
+                            <div class="form-check">
+                                {{ image_item.clear_field }}
+                                <label class="form-check-label" for="{{ image_item.clear_field.id_for_label }}">
+                                    削除
+                                </label>
+                            </div>
+                        </div>
+                        {% endfor %}
+                    </div>
+                </div>
+                {% endif %}
+
+                {# Form Errors #}
+                {% if form.non_field_errors %}
+                <div class="alert alert-warning mt-3">
+                    <div class="fw-semibold mb-1">入力内容を確認してください。</div>
+                    <ul class="mb-0">
+                        {% for error in form.non_field_errors %}
+                        <li>{{ error }}</li>
+                        {% endfor %}
+                    </ul>
+                </div>
+                {% endif %}
+            </form>
+        </div>
+
+        {# Right Pane: PDF Preview #}
+        <div class="preview-pane">
+            <div class="preview-header">
+                <h4>PDFプレビュー</h4>
+                <button class="btn btn-sm btn-primary" id="updatePreviewBtn">
+                    <i class="bi bi-arrow-clockwise"></i> 更新
+                </button>
+            </div>
+            
+            <div class="preview-container" id="pdfPreviewContainer">
+                <div class="preview-placeholder">
+                    <p class="text-muted">「更新」ボタンを押すとPDFプレビューが表示されます</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    {# Footer #}
+    <div class="page-form-footer">
+        <div class="footer-left">
+            <a class="btn btn-outline-secondary" href="{% url 'project_detail' view.project.pk %}">
+                <i class="bi bi-arrow-left"></i> 戻る
+            </a>
+        </div>
+        <div class="footer-right">
+            <button type="submit" form="pageForm" class="btn btn-primary" id="saveBtn">
+                <i class="bi bi-download"></i> 保存
+            </button>
+        </div>
+    </div>
+</div>
+
+{# Hidden data #}
+<script>
+const PAGE_DATA = {
+    projectId: {{ view.project.pk }},
+    pageId: {{ view.object.pk|default:"null" }},
+    pdfUrl: '{% url "page_pdf" view.project.pk view.object.pk %}',
+    formData: {
+        {% if form.page_name.value %}
+        page_name: '{{ form.page_name.value|escapejs }}'
+        {% endif %}
+    }
+};
+</script>
+
+<script src="{% static 'js/page_form.js' %}"></script>
+
+{% endblock %}
