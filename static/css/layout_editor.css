@@ -1,0 +1,286 @@
+/* Layout Editor CSS - Issue #5 P0 Vertical Slice */
+
+:root {
+    --layout-primary: #0066cc;
+    --layout-selected: #ff6600;
+    --layout-border: #ddd;
+    --layout-bg: #f9f9f9;
+}
+
+/* ===== Main Container ===== */
+
+.layout-editor-wrapper {
+    display: flex;
+    flex-direction: column;
+    height: calc(100vh - 60px);
+    background: white;
+}
+
+.layout-editor-header {
+    padding: 20px;
+    border-bottom: 1px solid var(--layout-border);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-shrink: 0;
+}
+
+.layout-editor-header .header-title h2 {
+    margin-bottom: 5px;
+    font-size: 1.5rem;
+}
+
+.layout-editor-header .header-title .text-muted {
+    font-size: 0.875rem;
+}
+
+.layout-editor-header .header-info {
+    text-align: right;
+}
+
+/* ===== Main Layout: Canvas + Properties ===== */
+
+.layout-editor-main {
+    display: grid;
+    grid-template-columns: 1fr 300px;
+    gap: 20px;
+    padding: 20px;
+    flex: 1;
+    overflow: hidden;
+}
+
+/* ===== Canvas Container ===== */
+
+.layout-canvas-container {
+    display: flex;
+    justify-content: center;
+    align-items: flex-start;
+    overflow-y: auto;
+    background: var(--layout-bg);
+    border-radius: 4px;
+    padding: 20px;
+}
+
+.layout-canvas {
+    position: relative;
+    width: 600px;
+    height: 848px;
+    background: white;
+    border: 2px solid var(--layout-border);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+    overflow: hidden;
+    flex-shrink: 0;
+}
+
+.layout-canvas .template-bg {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    opacity: 0.15;
+    pointer-events: none;
+    z-index: 1;
+}
+
+/* ===== Layout Elements ===== */
+
+.layout-element {
+    position: absolute;
+    border: 2px solid var(--layout-primary);
+    background: rgba(0, 102, 204, 0.05);
+    cursor: move;
+    user-select: none;
+    z-index: 10;
+    transition: border-color 0.2s ease;
+}
+
+.layout-element:hover {
+    border-color: var(--layout-selected);
+    box-shadow: 0 0 8px rgba(255, 102, 0, 0.3);
+}
+
+.layout-element.selected {
+    border-color: var(--layout-selected);
+    box-shadow: 0 0 12px rgba(255, 102, 0, 0.5);
+    background: rgba(255, 102, 0, 0.08);
+}
+
+.layout-element.dragging {
+    opacity: 0.8;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
+}
+
+.layout-element.resizing {
+    opacity: 0.9;
+}
+
+/* ===== Element Label ===== */
+
+.element-label {
+    position: absolute;
+    top: 0;
+    left: 0;
+    padding: 3px 6px;
+    background: rgba(0, 102, 204, 0.2);
+    color: var(--layout-primary);
+    font-size: 11px;
+    font-weight: 600;
+    white-space: nowrap;
+    pointer-events: none;
+    z-index: 2;
+    border-radius: 2px;
+    text-transform: uppercase;
+}
+
+.element-border {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    border: 1px dashed rgba(0, 102, 204, 0.3);
+    pointer-events: none;
+    z-index: 1;
+}
+
+/* ===== Resize Handle ===== */
+
+.resize-handle {
+    position: absolute;
+    width: 10px;
+    height: 10px;
+    background: var(--layout-selected);
+    border: 2px solid white;
+    border-radius: 2px;
+    cursor: nwse-resize;
+    pointer-events: auto;
+    z-index: 20;
+    opacity: 0;
+    transition: opacity 0.2s ease;
+}
+
+.resize-handle-nwse {
+    bottom: -5px;
+    right: -5px;
+}
+
+.layout-element.selected .resize-handle {
+    opacity: 1;
+}
+
+.layout-element.selected .resize-handle:hover {
+    background: #ff3300;
+    box-shadow: 0 0 4px rgba(255, 51, 0, 0.6);
+}
+
+/* ===== Properties Panel ===== */
+
+.layout-properties-panel {
+    border: 1px solid var(--layout-border);
+    border-radius: 4px;
+    padding: 16px;
+    background: white;
+    overflow-y: auto;
+    flex-shrink: 0;
+}
+
+.layout-properties-panel h4 {
+    margin-bottom: 16px;
+    font-size: 1rem;
+    border-bottom: 2px solid var(--layout-primary);
+    padding-bottom: 8px;
+}
+
+.property-form {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.property-item {
+    padding-bottom: 12px;
+    border-bottom: 1px solid var(--layout-border);
+}
+
+.property-item h5 {
+    margin: 0 0 4px 0;
+    font-size: 0.95rem;
+    color: var(--layout-primary);
+}
+
+.property-item .text-muted {
+    margin: 0;
+    font-size: 0.8rem;
+}
+
+.form-group {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.form-group label {
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: #333;
+}
+
+.form-group input {
+    font-size: 0.9rem;
+}
+
+#applyPropButton {
+    font-size: 0.85rem;
+}
+
+/* ===== Footer ===== */
+
+.layout-editor-footer {
+    padding: 16px 20px;
+    border-top: 1px solid var(--layout-border);
+    display: flex;
+    gap: 10px;
+    justify-content: flex-end;
+    background: var(--layout-bg);
+    flex-shrink: 0;
+}
+
+.layout-editor-footer .btn {
+    min-width: 120px;
+}
+
+/* ===== Responsive ===== */
+
+@media (max-width: 1200px) {
+    .layout-editor-main {
+        grid-template-columns: 1fr;
+        gap: 10px;
+    }
+    
+    .layout-properties-panel {
+        max-height: 200px;
+    }
+}
+
+/* ===== Accessibility ===== */
+
+.layout-element:focus {
+    outline: 2px solid var(--layout-selected);
+    outline-offset: 2px;
+}
+
+.resize-handle:focus {
+    outline: 2px solid var(--layout-selected);
+}
+
+/* ===== Print Styles ===== */
+
+@media print {
+    .layout-editor-wrapper,
+    .layout-editor-header,
+    .layout-editor-footer {
+        display: none;
+    }
+}

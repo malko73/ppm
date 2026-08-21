@@ -1,0 +1,112 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="{% static 'css/layout_editor.css' %}">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.0/font/bootstrap-icons.css">
+{% endblock %}
+
+{% block content %}
+
+<div class="layout-editor-wrapper">
+    {# Header #}
+    <div class="layout-editor-header">
+        <div class="header-title">
+            <h2>{{ project.title }}</h2>
+            <p class="text-muted">テンプレート: {{ template.name }}</p>
+        </div>
+        <div class="header-info">
+            <span class="badge bg-light text-dark">{{ template_width_mm|floatformat:0 }}mm × {{ template_height_mm|floatformat:0 }}mm</span>
+        </div>
+    </div>
+
+    {# Main Layout: Canvas + Properties #}
+    <div class="layout-editor-main">
+        {# Canvas: PDF background + overlay elements #}
+        <div class="layout-canvas-container">
+            <div class="layout-canvas" id="layoutCanvas">
+                <img src="{{ template.template_file.url }}" alt="Template PDF" class="template-bg" id="templateBg">
+                
+                {# Text overlay elements #}
+                {% for text in text_layout_objects %}
+                <div class="layout-element text-element"
+                     data-type="text"
+                     data-key="{{ text.key }}"
+                     data-x="{{ text.x }}"
+                     data-y="{{ text.y }}"
+                     data-w="{{ text.w }}"
+                     data-h="{{ text.h }}"
+                     style="left: {{ text.x_px }}px; top: {{ text.y_px }}px; width: {{ text.w_px }}px; height: {{ text.h_px }}px;">
+                    <div class="element-label">{{ text.label }}</div>
+                    <div class="element-border"></div>
+                    <div class="resize-handle resize-handle-nwse"></div>
+                </div>
+                {% endfor %}
+                
+                {# Image overlay elements #}
+                {% for image in image_layout_objects %}
+                <div class="layout-element image-element"
+                     data-type="image"
+                     data-key="{{ image.key }}"
+                     data-x="{{ image.x }}"
+                     data-y="{{ image.y }}"
+                     data-w="{{ image.w }}"
+                     data-h="{{ image.h }}"
+                     style="left: {{ image.x_px }}px; top: {{ image.y_px }}px; width: {{ image.w_px }}px; height: {{ image.h_px }}px;">
+                    <div class="element-label">{{ image.label }}</div>
+                    <div class="element-border"></div>
+                    <div class="resize-handle resize-handle-nwse"></div>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+
+        {# Properties Panel #}
+        <div class="layout-properties-panel">
+            <h4>プロパティ</h4>
+            <div id="propertyForm" class="property-form">
+                <p class="text-muted text-center">要素を選択してください</p>
+            </div>
+        </div>
+    </div>
+
+    {# Footer #}
+    <div class="layout-editor-footer">
+        <a href="{% url 'project_detail' project.pk %}" class="btn btn-secondary">
+            <i class="bi bi-arrow-left"></i> キャンセル
+        </a>
+        <button id="savePdfButton" class="btn btn-primary" disabled>
+            <i class="bi bi-file-pdf"></i> 保存して PDF 確認
+        </button>
+    </div>
+</div>
+
+{# Hidden data for JavaScript #}
+<script>
+// Coordinate system constants
+const COORDINATE_CONFIG = {
+    A4_WIDTH_MM: 210.0,
+    A4_HEIGHT_MM: 297.0,
+    BROWSER_PDF_WIDTH_PX: 600,
+    BROWSER_PDF_HEIGHT_PX: 848,
+    TEMPLATE_WIDTH_MM: {{ template_width_mm|floatformat:1 }},
+    TEMPLATE_HEIGHT_MM: {{ template_height_mm|floatformat:1 }},
+};
+
+// Server data
+const SERVER_DATA = {
+    PROJECT_ID: {{ project.pk }},
+    TEMPLATE_ID: {{ template.pk }},
+    LAYOUT_EDITOR_URL: '{% url "layout_editor" project.pk %}',
+    PROJECT_DETAIL_URL: '{% url "project_detail" project.pk %}',
+    PROJECT_PDF_URL: '{% url "project_pdf_merged" project.pk %}',
+};
+
+// Initial layout data
+const INITIAL_TEXT_LAYOUT = {{ text_layout|safe }};
+const INITIAL_IMAGE_LAYOUT = {{ image_layout|safe }};
+</script>
+
+<script src="{% static 'js/layout_editor.js' %}"></script>
+
+{% endblock %}

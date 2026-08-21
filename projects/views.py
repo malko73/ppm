@@ -22,6 +22,7 @@ from .models import Page, Project, ProjectTemplate
 from .services.csv_import import CSVImportError, CSVImportService
 from .services.pdf_renderer import PDFRenderService
 from .tasks import build_pages_zip
+from .utils.coordinates import CoordinateConverter
 
 
 def _user_project_qs(user):
@@ -573,3 +574,208 @@ def download_project_csv_format(request, project_id: int):
     writer = csv.writer(response)
     writer.writerow(headers)
     return response
+@login_required
+def layout_editor(request, project_id: int, template_id: int = None):
+    """
+    レイアウトエディタ UI
+    
+    GET: レイアウト編集画面を表示
+    POST (JSON): ドラッグ・リサイズ後の座標を mm で保存
+    
+    Data flow:
+    UI px座標 → mm変換 → DB保存 → PDF再生成で位置確認
+    """
+    project = get_object_or_404(
+        _user_project_qs(request.user),
+        pk=project_id
+    )
+    
+    # テンプレート取得
+    _ensure_project_templates(project)
+    
+    if template_id:
+        template = get_object_or_404(project.templates, pk=template_id)
+    else:
+        template = project.get_default_template()
+    
+    if not template:
+        messages.error(request, 'テンプレートがありません')
+        return redirect('project_detail', pk=project_id)
+    
+    # ===== GET: レイアウト編集画面表示 =====
+    if request.method == 'GET':
+        # default_positions から text/image layout を抽出
+        default_pos = template.default_positions or {}
+        
+        # テンプレートサイズ取得（デフォルト A4）
+        template_width_mm = default_pos.get('width_mm', 210.0)
+        template_height_mm = default_pos.get('height_mm', 297.0)
+        
+        # text_layout と image_layout を取得
+        text_layout = []
+        image_layout = []
+        
+        # 既存スキーマから抽出（複数フォーマットに対応）
+        if 'text_layout' in default_pos and isinstance(default_pos['text_layout'], list):
+            text_layout = default_pos['text_layout']
+        elif 'text' in default_pos and isinstance(default_pos['text'], list):
+            text_layout = default_pos['text']
+        
+        if 'image_layout' in default_pos and isinstance(default_pos['image_layout'], list):
+            image_layout = default_pos['image_layout']
+        elif 'image' in default_pos and isinstance(default_pos['image'], list):
+            image_layout = default_pos['image']
+        
+        # Template rendering用に px 座標を計算（mm → px）
+        px_per_mm_x = 600.0 / template_width_mm
+        px_per_mm_y = 848.0 / template_height_mm
+        
+        text_layout_with_px = []
+        for text in text_layout:
+            text_copy = dict(text)
+            text_copy['x_px'] = text.get('x', 0) * px_per_mm_x
+            text_copy['y_px'] = text.get('y', 0) * px_per_mm_y
+            text_copy['w_px'] = text.get('w', 0) * px_per_mm_x
+            text_copy['h_px'] = text.get('h', 0) * px_per_mm_y
+            text_layout_with_px.append(text_copy)
+        
+        image_layout_with_px = []
+        for image in image_layout:
+            image_copy = dict(image)
+            image_copy['x_px'] = image.get('x', 0) * px_per_mm_x
+            image_copy['y_px'] = image.get('y', 0) * px_per_mm_y
+            image_copy['w_px'] = image.get('w', 0) * px_per_mm_x
+            image_copy['h_px'] = image.get('h', 0) * px_per_mm_y
+            image_layout_with_px.append(image_copy)
+        
+        context = {
+            'project': project,
+            'template': template,
+            'text_layout': json.dumps(text_layout, ensure_ascii=False),
+            'image_layout': json.dumps(image_layout, ensure_ascii=False),
+            'text_layout_objects': text_layout_with_px,
+            'image_layout_objects': image_layout_with_px,
+            'template_width_mm': template_width_mm,
+            'template_height_mm': template_height_mm,
+        }
+        
+        return render(request, 'projects/layout_editor.html', context)
+    
+    # ===== POST: 座標更新（JSON） =====
+    if request.method == 'POST':
+        try:
+            data = json.loads(request.body)
+            
+            element_type = data.get('type')  # 'text' or 'image'
+            element_key = data.get('key')
+            x_mm = float(data.get('x'))
+            y_mm = float(data.get('y'))
+            w_mm = float(data.get('w'))
+            h_mm = float(data.get('h'))
+            
+            if element_type not in ('text', 'image'):
+                return JsonResponse({
+                    'status': 'error',
+                    'message': f'Invalid type: {element_type}'
+                }, status=400)
+            
+            if not element_key:
+                return JsonResponse({
+                    'status': 'error',
+                    'message': 'Missing element key'
+                }, status=400)
+            
+            # default_positions を取得（新規作成）
+            default_positions = template.default_positions or {}
+            
+            # テンプレートサイズを保持
+            if 'width_mm' not in default_positions:
+                default_positions['width_mm'] = 210.0
+            if 'height_mm' not in default_positions:
+                default_positions['height_mm'] = 297.0
+            
+            # ===== 座標更新: source of truth は mm =====
+            if element_type == 'text':
+                # text_layout リストを取得または初期化
+                text_layout = default_positions.get('text_layout', [])
+                if isinstance(text_layout, str):
+                    text_layout = json.loads(text_layout)
+                
+                # element_key に対応するアイテムを更新
+                found = False
+                for item in text_layout:
+                    if item.get('key') == element_key:
+                        # mm 値を丸めて保存（source of truth）
+                        item['x'] = CoordinateConverter.round_mm(x_mm, 2)
+                        item['y'] = CoordinateConverter.round_mm(y_mm, 2)
+                        item['w'] = CoordinateConverter.round_mm(w_mm, 2)
+                        item['h'] = CoordinateConverter.round_mm(h_mm, 2)
+                        found = True
+                        break
+                
+                if not found:
+                    return JsonResponse({
+                        'status': 'error',
+                        'message': f'Text element "{element_key}" not found'
+                    }, status=404)
+                
+                default_positions['text_layout'] = text_layout
+            
+            elif element_type == 'image':
+                # image_layout リストを取得または初期化
+                image_layout = default_positions.get('image_layout', [])
+                if isinstance(image_layout, str):
+                    image_layout = json.loads(image_layout)
+                
+                # element_key に対応するアイテムを更新
+                found = False
+                for item in image_layout:
+                    if item.get('key') == element_key:
+                        # mm 値を丸めて保存（source of truth）
+                        item['x'] = CoordinateConverter.round_mm(x_mm, 2)
+                        item['y'] = CoordinateConverter.round_mm(y_mm, 2)
+                        item['w'] = CoordinateConverter.round_mm(w_mm, 2)
+                        item['h'] = CoordinateConverter.round_mm(h_mm, 2)
+                        found = True
+                        break
+                
+                if not found:
+                    return JsonResponse({
+                        'status': 'error',
+                        'message': f'Image element "{element_key}" not found'
+                    }, status=404)
+                
+                default_positions['image_layout'] = image_layout
+            
+            # テンプレートを保存
+            template.default_positions = default_positions
+            template.save(update_fields=['default_positions', 'updated_at'])
+            
+            return JsonResponse({
+                'status': 'success',
+                'message': f'{element_type} "{element_key}" の座標を更新しました',
+                'saved_data': {
+                    'x_mm': CoordinateConverter.round_mm(x_mm, 2),
+                    'y_mm': CoordinateConverter.round_mm(y_mm, 2),
+                    'w_mm': CoordinateConverter.round_mm(w_mm, 2),
+                    'h_mm': CoordinateConverter.round_mm(h_mm, 2),
+                }
+            })
+        
+        except json.JSONDecodeError as e:
+            return JsonResponse({
+                'status': 'error',
+                'message': f'Invalid JSON: {str(e)}'
+            }, status=400)
+        
+        except (KeyError, ValueError, TypeError) as e:
+            return JsonResponse({
+                'status': 'error',
+                'message': f'Invalid data: {str(e)}'
+            }, status=400)
+        
+        except Exception as e:
+            return JsonResponse({
+                'status': 'error',
+                'message': f'Server error: {str(e)}'
+            }, status=500)

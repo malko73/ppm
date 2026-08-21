@@ -24,4 +24,7 @@ urlpatterns = [
     path('projects/<int:project_id>/csv/', views.download_pages_csv, name='project_pages_csv'),
     path('projects/<int:project_id>/csv/upload/', views.upload_project_csv, name='project_csv_upload'),
     path('projects/<int:project_id>/csv/format/', views.download_project_csv_format, name='project_csv_format'),
+    # Layout Editor: P0 Vertical Slice
+    path('projects/<int:project_id>/layout-editor/', views.layout_editor, name='layout_editor'),
+    path('projects/<int:project_id>/templates/<int:template_id>/layout-editor/', views.layout_editor, name='layout_editor_template'),
 ]
