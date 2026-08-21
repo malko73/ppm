@@ -50,12 +50,11 @@ cleanup() {
 
 trap cleanup EXIT
 
-# Check Playwright availability
-if ! command -v playwright &> /dev/null; then
-    echo "ERROR: Playwright not installed. Install with:"
-    echo "  pip install playwright"
-    echo "  playwright install chromium"
-    exit 1
+# Check if running as root (via sudo)
+if [[ $EUID -eq 0 ]]; then
+    PYTHON_CMD="python3"
+else
+    PYTHON_CMD="sudo python3"
 fi
 
 # Python script for browser-based testing
@@ -238,7 +237,7 @@ PYTHON_EOF
 
 # Run Python test
 echo "[INFO] Starting browser-based authentication tests..."
-python3 "$REPORT_DIR/test_runner.py" "$REPORT_DIR"
+$PYTHON_CMD "$REPORT_DIR/test_runner.py" "$REPORT_DIR"
 
 echo ""
 echo ">>> Tests complete. Check $REPORT_DIR for details."
