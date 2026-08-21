@@ -1,0 +1,38 @@
+[Unit]
+Description=PPM Daily Backup Service
+Documentation=https://github.com/malko73/ppm/issues/3
+After=network.target
+
+[Service]
+Type=oneshot
+User=ppm
+Group=ppm
+WorkingDirectory=/home/ppm/ppm
+
+# Environment variables for backup
+Environment="DB_NAME=ppm"
+Environment="DB_USER=postgres"
+Environment="DB_HOST=localhost"
+Environment="DB_PORT=5432"
+Environment="GPG_RECIPIENT=backup@ppm.local"
+Environment="AWS_S3_BUCKET=ppm-backups"
+Environment="AWS_REGION=ap-northeast-1"
+
+# Execute backup script
+ExecStart=/home/ppm/ppm/scripts/backup.sh
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=ppm-backup
+
+# Resource limits
+CPUQuota=50%
+MemoryLimit=512M
+
+# Restart policy
+Restart=on-failure
+RestartSec=300
+
+[Install]
+WantedBy=multi-user.target

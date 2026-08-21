@@ -1,0 +1,20 @@
+[Unit]
+Description=PPM Daily Backup Timer
+Documentation=https://github.com/malko73/ppm/issues/3
+
+[Timer]
+# Run daily at 02:00
+OnCalendar=daily
+OnCalendar=*-*-* 02:00:00
+
+# Run on boot if missed
+Persistent=true
+
+# Randomize start time by up to 5 minutes to avoid thundering herd
+RandomizedDelaySec=5min
+
+# Unit to activate
+Unit=ppm-backup.service
+
+[Install]
+WantedBy=timers.target
