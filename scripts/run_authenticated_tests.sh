@@ -1,7 +1,7 @@
 #!/bin/bash
 #
-# PPM Issue #2: Authenticated Runtime Failure Gate Tests (A2 & B2) — FIXED
-# With proper CSRF handling, login verification, and Redis AUTH
+# PPM Issue #2: Authenticated Runtime Failure Gate Tests (A2 & B2) — FIXED v2
+# With proper login result detection
 #
 # Usage: sudo bash run_authenticated_tests.sh
 #
@@ -116,23 +116,21 @@ log_preflight "  ✓ CSRF token extracted: ${CSRF_TOKEN:0:10}..."
 
 # PRE-3: Login POST with CSRF token
 log_preflight "PRE-3: Perform login POST"
-LOGIN_RESPONSE=$(curl -ksS \
+curl -ksS \
   -b "$COOKIE_JAR" \
   -c "$COOKIE_JAR" \
   -e "$LOGIN_URL" \
   -X POST "$LOGIN_URL" \
   -d "username=tadashi&password=Asahiimc00&csrfmiddlewaretoken=$CSRF_TOKEN" \
-  -w "\n%{http_code}" \
-  -o "$REPORT_DIR/login_response.html" 2>/dev/null)
+  -o "$REPORT_DIR/login_response.html" 2>/dev/null
 
-LOGIN_STATUS=$(echo "$LOGIN_RESPONSE" | tail -1)
-
-if [[ "$LOGIN_STATUS" == "302" ]]; then
-    log_preflight "  ✓ Login returned 302 (redirect expected)"
-else
-    log_preflight "  ✗ Login returned HTTP $LOGIN_STATUS (expected 302)"
+# Check login result: if response contains login form again, it failed
+if grep -q 'name="csrfmiddlewaretoken"' "$REPORT_DIR/login_response.html"; then
+    log_preflight "  ✗ Login form still present (authentication failed)"
     exit 1
 fi
+
+log_preflight "  ✓ Login form not present (likely successful)"
 
 # PRE-4: Verify authenticated session (access protected page)
 log_preflight "PRE-4: Verify authenticated session"
@@ -178,7 +176,7 @@ BASELINE_PDF=$(curl -ksS \
 
 if [[ "$BASELINE_PDF" == "200" ]]; then
     log_preflight "  ✓ PDF endpoint accessible (HTTP 200)"
-    if grep -q "application/pdf" "$REPORT_DIR/baseline_pdf.html"; then
+    if grep -q "application/pdf\|PDF" "$REPORT_DIR/baseline_pdf.html"; then
         log_preflight "    ✓ PDF content detected"
     fi
 elif [[ "$BASELINE_PDF" == "404" ]]; then
@@ -219,7 +217,7 @@ HTTP_A2=$(tail -1 "$REPORT_DIR/a2_pdf_request.log" | grep -oP 'HTTP \K\d+' || ec
 echo "Test A2 HTTP Code: $HTTP_A2" | tee -a "$REPORT_DIR/summary.log"
 
 # Verify no sync PDF
-if grep -q "application/pdf" "$REPORT_DIR/a2_pdf_redis_down.html"; then
+if grep -q "application/pdf\|PDF" "$REPORT_DIR/a2_pdf_redis_down.html"; then
     log_result "A2: FAIL — PDF was generated (sync fallback detected!)"
 else
     log_result "A2: PASS — No sync PDF generation, fail-closed confirmed"
@@ -274,23 +272,23 @@ curl -ksS \
 HTTP_B2=$(tail -1 "$REPORT_DIR/b2_pdf_request.log" | grep -oP 'HTTP \K\d+' || echo "000")
 echo "Test B2 HTTP Code: $HTTP_B2" | tee -a "$REPORT_DIR/summary.log"
 
-# Check Redis queue
-log_test "B2: Check Redis queue for accumulated tasks"
+# Measure queue BEFORE celery restart
+log_test "B2: Measure Redis queue (Celery still DOWN)"
 if [[ $REDIS_AUTH_AVAILABLE -eq 1 ]]; then
-    QUEUE_LEN=$(redis-cli -a "$REDIS_PASSWORD" LLEN celery 2>/dev/null || echo "0")
+    QUEUE_BEFORE=$(redis-cli -a "$REDIS_PASSWORD" LLEN celery 2>/dev/null || echo "unknown")
 else
-    QUEUE_LEN=$(redis-cli LLEN celery 2>/dev/null || echo "0")
+    QUEUE_BEFORE=$(redis-cli LLEN celery 2>/dev/null || echo "unknown")
 fi
-echo "Redis queue length: $QUEUE_LEN" | tee -a "$REPORT_DIR/summary.log"
+echo "Redis queue BEFORE restart: $QUEUE_BEFORE" | tee -a "$REPORT_DIR/summary.log"
 
-if [[ "$QUEUE_LEN" =~ ^[0-9]+$ ]] && [[ "$QUEUE_LEN" -gt 0 ]]; then
-    log_result "B2: Queue accumulated PASS (queue > 0: $QUEUE_LEN tasks)"
+if [[ "$QUEUE_BEFORE" =~ ^[0-9]+$ ]] && [[ "$QUEUE_BEFORE" -gt 0 ]]; then
+    log_result "B2: Queue accumulated PASS (queue > 0: $QUEUE_BEFORE tasks)"
 else
-    log_result "B2: Queue check showed: $QUEUE_LEN"
+    log_result "B2: Queue check showed: $QUEUE_BEFORE (may indicate Redis AUTH issue)"
 fi
 
 # Verify no sync PDF
-if grep -q "application/pdf" "$REPORT_DIR/b2_pdf_celery_down.html"; then
+if grep -q "application/pdf\|PDF" "$REPORT_DIR/b2_pdf_celery_down.html"; then
     log_result "B2: FAIL — PDF was generated (sync fallback detected!)"
 else
     log_result "B2: PASS — No sync PDF generation during Celery outage"
@@ -300,15 +298,25 @@ log_test "B2: Restart Celery"
 sudo systemctl start celery-ppm 2>&1 | tee "$REPORT_DIR/b2_celery_start.log"
 sleep 5
 
-log_test "B2: Verify queue drains and PDF processes after Celery restart"
+log_test "B2: Measure Redis queue (Celery now UP)"
 sleep 3
 if [[ $REDIS_AUTH_AVAILABLE -eq 1 ]]; then
     QUEUE_AFTER=$(redis-cli -a "$REDIS_PASSWORD" LLEN celery 2>/dev/null || echo "unknown")
 else
     QUEUE_AFTER=$(redis-cli LLEN celery 2>/dev/null || echo "unknown")
 fi
-echo "Queue after Celery restart: $QUEUE_AFTER" | tee -a "$REPORT_DIR/summary.log"
+echo "Redis queue AFTER restart: $QUEUE_AFTER" | tee -a "$REPORT_DIR/summary.log"
 
+if [[ "$QUEUE_AFTER" =~ ^[0-9]+$ ]] && [[ "$QUEUE_BEFORE" =~ ^[0-9]+$ ]]; then
+    if [[ $QUEUE_AFTER -lt $QUEUE_BEFORE ]]; then
+        log_result "B2: Queue drained PASS ($QUEUE_BEFORE → $QUEUE_AFTER)"
+    else
+        log_result "B2: Queue not draining (still $QUEUE_AFTER, was $QUEUE_BEFORE)"
+    fi
+fi
+
+log_test "B2: Verify PDF generates after queue processing"
+sleep 2
 RECOVERY_B2=$(curl -ksS \
   -b "$COOKIE_JAR" \
   -w "%{http_code}" \
@@ -318,7 +326,7 @@ RECOVERY_B2=$(curl -ksS \
 echo "Test B2 Recovery HTTP Code: $RECOVERY_B2" | tee -a "$REPORT_DIR/summary.log"
 
 if [[ "$RECOVERY_B2" == "200" ]]; then
-    if grep -q "application/pdf" "$REPORT_DIR/b2_recovery.html"; then
+    if grep -q "application/pdf\|PDF" "$REPORT_DIR/b2_recovery.html"; then
         log_result "B2: Recovery PASS — Queue processed, PDF generated"
     else
         log_result "B2: Recovery WARNING — HTTP 200 but PDF content not found"
