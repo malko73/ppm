@@ -76,7 +76,7 @@ ssh root@NEW_VPS_IP
 apt-get update
 apt-get upgrade -y
 
-# Install essential tools
+# Install essential tools (including web server)
 apt-get install -y \
     git \
     curl \
@@ -89,7 +89,14 @@ apt-get install -y \
     gpg \
     tar \
     gzip \
-    awscli
+    awscli \
+    apache2 \
+    libapache2-mod-wsgi-py3
+
+# Enable Apache modules for WSGI
+a2enmod wsgi
+a2enmod proxy
+a2enmod proxy_http
 
 # Verify tools installed
 pg_dump --version
@@ -125,39 +132,48 @@ EOF
 Instead of hardcoding passwords in commands or environment variables, use PostgreSQL's `.pgpass` file:
 
 ```bash
-# Create .pgpass file (in root user's home, or later in ppm user's home)
-mkdir -p ~/.postgresql
-touch ~/.postgresql/.pgpass
-chmod 600 ~/.postgresql/.pgpass
+# Set PGPASSFILE to use standard location
+export PGPASSFILE="$HOME/.pgpass"
+
+# Create .pgpass file in standard location
+touch ~/.pgpass
+chmod 600 ~/.pgpass
 
 # Add credentials:
 # Format: hostname:port:database:username:password
-cat >> ~/.postgresql/.pgpass << EOF
+cat >> ~/.pgpass << EOF
 localhost:5432:ppm:ppm:YOUR_SECURE_PASSWORD
 EOF
 
 # Verify .pgpass
-cat ~/.postgresql/.pgpass
+cat ~/.pgpass
+# Expected: localhost:5432:ppm:ppm:YOUR_SECURE_PASSWORD
 ```
 
 #### Setup PostgreSQL User and Database
 
 ```bash
-# Create user (without password in command)
+# CRITICAL: Password in psql must match .pgpass entry
+export PGPASSFILE="$HOME/.pgpass"
+
+# Create user WITH PASSWORD (must match .pgpass)
 sudo -u postgres psql << EOF
-CREATE USER ppm;
+CREATE USER ppm WITH PASSWORD 'YOUR_SECURE_PASSWORD';
 CREATE DATABASE ppm OWNER ppm;
 ALTER DATABASE ppm SET timezone = 'UTC';
 EOF
 
 # Test connection using .pgpass (should not prompt for password)
 psql -h localhost -U ppm -d ppm -c "SELECT 1;"
+# Expected: no password prompt, returns "1"
 ```
 
 **Key Points**:
+- Export `PGPASSFILE="$HOME/.pgpass"` before any psql command
+- `CREATE USER ppm WITH PASSWORD 'YOUR_SECURE_PASSWORD'` must match .pgpass entry
 - Never use passwords in CLI: `psql -U ppm -W ...` (interactive) or `PGPASSWORD=... psql`
-- Use `.pgpass` file with 600 permissions
-- After recovery, verify no secrets in logs: `grep -i password /var/log/postgresql/*.log || echo "OK"`
+- .pgpass file requires 600 permissions
+- After recovery, verify no secrets in logs: `grep -q "password" /var/log/postgresql/*.log || echo "✓ No password exposure in logs"`
 
 ### 1.4 Firewall & Network (if applicable)
 
