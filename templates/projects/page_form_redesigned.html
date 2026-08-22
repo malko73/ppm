@@ -10,9 +10,9 @@
 <div class="page-form-wrapper">
     {# Header #}
     <div class="page-form-header">
-        <h2>{{ view.object.page_name|default:"新規ページ" }}</h2>
+        <h2>{{ object.page_name|default:"新規ページ" }}</h2>
         <div class="header-info">
-            <span class="badge bg-light text-dark" id="unsavedIndicator" style="display: none;">
+            <span class="badge bg-light text-muted" id="unsavedIndicator" style="display: none;">
                 <i class="bi bi-exclamation-circle"></i> 未保存
             </span>
         </div>
@@ -153,9 +153,9 @@
 {# Hidden data #}
 <script>
 const PAGE_DATA = {
-    projectId: {{ view.project.pk }},
-    pageId: {{ view.object.pk|default:"null" }},
-    pdfUrl: '{% url "page_pdf" view.project.pk view.object.pk %}',
+    projectId: {{ project.pk }},
+    pageId: {{ object.pk|default:"null" }},
+    pdfUrl: '{% if object.pk %}{% url "page_pdf" project.pk object.pk %}{% else %}{% endif %}',
     formData: {
         {% if form.page_name.value %}
         page_name: '{{ form.page_name.value|escapejs }}'

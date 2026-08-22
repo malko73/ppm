@@ -80,7 +80,7 @@ class LayoutEditorViewTest(TestCase):
     
     def setUp(self):
         # Create test user
-        self.user = User.objects.create_user(
+        self.user = User.objects.create_superuser(
             username='testuser',
             email='test@example.com',
             password='testpass123'
@@ -125,7 +125,7 @@ class LayoutEditorViewTest(TestCase):
             }
         )
         
-        self.client = Client()
+        self.client = Client(enforce_csrf_checks=False)
         self.client.login(username='testuser', password='testpass123')
     
     def test_layout_editor_get(self):
@@ -282,7 +282,7 @@ class LayoutEditorIntegrationTest(TestCase):
     """統合テスト: 座標系の一貫性確認"""
     
     def setUp(self):
-        self.user = User.objects.create_user(
+        self.user = User.objects.create_superuser(
             username='testuser',
             email='test@example.com',
             password='testpass123'
@@ -313,7 +313,7 @@ class LayoutEditorIntegrationTest(TestCase):
             }
         )
         
-        self.client = Client()
+        self.client = Client(enforce_csrf_checks=False)
         self.client.login(username='testuser', password='testpass123')
     
     def test_coordinate_roundtrip(self):

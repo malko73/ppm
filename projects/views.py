@@ -274,10 +274,15 @@ class UserPageMixin(LoginRequiredMixin):
         )
         return kwargs
 
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context['project'] = self.project
+        return context
+
 
 class PageCreateView(UserPageMixin, CreateView):
     form_class = PageForm
-    template_name = 'projects/page_form.html'
+    template_name = 'projects/page_form_redesigned.html'
 
     def form_valid(self, form):
         form.instance.project = self.project
@@ -399,6 +404,21 @@ def download_single_page_pdf(request, project_id: int, pk: int):
         filename = f"{page.page_number:03d}_{page_name}.pdf"
     response['Content-Disposition'] = f'inline; filename="{filename}"'
     return response
+
+
+@login_required
+def page_preview(request, project_id: int, pk: int):
+    """htmx用ページプレビューエンドポイント"""
+    project = get_object_or_404(_user_project_qs(request.user), pk=project_id)
+    page = get_object_or_404(Page, pk=pk, project=project)
+    pages = project.pages.order_by('order', 'id')
+    
+    context = {
+        'selected_page': page,
+        'pages': pages,
+        'project': project,
+    }
+    return render(request, 'components/page_preview_pane.html', context)
 
 
 @login_required

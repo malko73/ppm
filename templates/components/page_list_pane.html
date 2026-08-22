@@ -12,7 +12,7 @@
             {% for page in pages %}
             <div class="list-group-item d-flex align-items-center justify-content-between py-3 px-3 page-list-item" 
                  data-page-id="{{ page.id }}"
-                 hx-get="{% url 'page_preview' page.pk %}"
+                 hx-get="{% url 'page_preview' project.pk page.pk %}"
                  hx-target=".page-preview-pane"
                  style="cursor: pointer; transition: background-color 0.15s;">
                 

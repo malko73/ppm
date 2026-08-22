@@ -29,19 +29,19 @@
             </div>
 
             {# Action Buttons #}
-            <div class=\"card-footer bg-white d-flex gap-2\">
-                <a href=\"{% url 'page_update' selected_page.pk %}\" class=\"btn btn-sm btn-primary\">編集する</a>
-                <a href=\"{% url 'page_pdf' selected_page.pk %}\" target=\"_blank\" rel=\"noopener noreferrer\" class=\"btn btn-sm btn-outline-primary\">PDFを開く</a>
+            <div class="card-footer bg-white d-flex gap-2">
+                <a href="{% url 'page_update' project.pk selected_page.pk %}" class="btn btn-sm btn-primary">編集する</a>
+                <a href="{% url 'page_pdf' project.pk selected_page.pk %}" target="_blank" rel="noopener noreferrer" class="btn btn-sm btn-outline-primary">PDFを開く</a>
             </div>
         {% else %}
             {# No Page Selected #}
-            <div class=\"d-flex align-items-center justify-content-center\" style=\"height: 600px; background: #f9f9f9;\">
-                <div class=\"text-center text-muted\">
-                    <svg xmlns=\"http://www.w3.org/2000/svg\" width=\"48\" height=\"48\" fill=\"currentColor\" class=\"mb-2 opacity-25\" viewBox=\"0 0 16 16\">
-                        <path d=\"M1 3a1 1 0 0 1 1-1h12a1 1 0 0 1 1 1H1zm7 8a2 2 0 1 0 0-4 2 2 0 0 0 0 4z\"/>
-                        <path d=\"M0 5a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v6a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2V5zm2-1a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V5a1 1 0 0 0-1-1H2z\"/>
+            <div class="d-flex align-items-center justify-content-center" style="height: 600px; background: #f9f9f9;">
+                <div class="text-center text-muted">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" fill="currentColor" class="mb-2 opacity-25" viewBox="0 0 16 16">
+                        <path d="M1 3a1 1 0 0 1 1-1h12a1 1 0 0 1 1 1H1zm7 8a2 2 0 1 0 0-4 2 2 0 0 0 0 4z"/>
+                        <path d="M0 5a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v6a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2V5zm2-1a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V5a1 1 0 0 0-1-1H2z"/>
                     </svg>
-                    <p class=\"mb-0\">ページを選択してください</p>
+                    <p class="mb-0">ページを選択してください</p>
                 </div>
             </div>
         {% endif %}

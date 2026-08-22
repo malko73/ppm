@@ -15,6 +15,7 @@ urlpatterns = [
     path('projects/<int:project_id>/pages/<int:pk>/finalized/', views.toggle_page_finalized, name='page_toggle_finalized'),
     path('projects/<int:project_id>/pages/reorder/', views.reorder_pages, name='page_reorder'),
     path('projects/<int:project_id>/pages/<int:pk>/pdf/', views.download_single_page_pdf, name='page_pdf'),
+    path('projects/<int:project_id>/pages/<int:pk>/preview/', views.page_preview, name='page_preview'),
     path('projects/<int:project_id>/pdf/merged/', views.download_merged_pdf, name='project_pdf_merged'),
     # ZIP は非同期生成: start → pending（ポーリング） → download
     path('projects/<int:project_id>/pdf/zip/start/', views.start_pages_zip, name='project_pdf_zip_start'),
