@@ -790,6 +790,23 @@ def layout_editor(request, project_id: int, template_id: int = None):
                         item['y'] = CoordinateConverter.round_mm(y_mm, 2)
                         item['w'] = CoordinateConverter.round_mm(w_mm, 2)
                         item['h'] = CoordinateConverter.round_mm(h_mm, 2)
+                        
+                        # Update text properties if provided
+                        if 'label' in data:
+                            item['label'] = data['label']
+                        if 'font_size' in data:
+                            item['font_size'] = int(data['font_size'])
+                        if 'font_family' in data:
+                            item['font_family'] = data['font_family']
+                        if 'font_weight' in data:
+                            item['font_weight'] = data['font_weight']
+                        if 'color' in data:
+                            item['color'] = data['color']
+                        if 'text_align' in data:
+                            item['text_align'] = data['text_align']
+                        if 'writing_mode' in data:
+                            item['writing_mode'] = data['writing_mode']
+                        
                         found = True
                         break
                 
@@ -816,6 +833,11 @@ def layout_editor(request, project_id: int, template_id: int = None):
                         item['y'] = CoordinateConverter.round_mm(y_mm, 2)
                         item['w'] = CoordinateConverter.round_mm(w_mm, 2)
                         item['h'] = CoordinateConverter.round_mm(h_mm, 2)
+                        
+                        # Update label if provided
+                        if 'label' in data:
+                            item['label'] = data['label']
+                        
                         found = True
                         break
                 

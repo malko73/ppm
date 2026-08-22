@@ -421,6 +421,14 @@ function updatePropertyPanel() {
                     <option value="right" ${row.text_align === 'right' ? 'selected' : ''}>右</option>
                 </select>
             </div>
+            <div class="form-group">
+                <label>書き方向</label>
+                <select class="form-control form-control-sm" id="propWritingMode">
+                    <option value="horizontal-tb" ${row.writing_mode === 'horizontal-tb' ? 'selected' : ''}>横書き</option>
+                    <option value="vertical-rl" ${row.writing_mode === 'vertical-rl' ? 'selected' : ''}>縦書き（右→左）</option>
+                    <option value="vertical-lr" ${row.writing_mode === 'vertical-lr' ? 'selected' : ''}>縦書き（左→右）</option>
+                </select>
+            </div>
         `;
     }
     
@@ -456,13 +464,15 @@ function applyPropertyChanges() {
         const fontWeight = document.getElementById('propFontWeight').value;
         const color = document.getElementById('propColor').value;
         const textAlign = document.getElementById('propTextAlign').value;
+        const writingMode = document.getElementById('propWritingMode').value;
         
         Object.assign(updates, {
             font_size: fontSize,
             font_family: fontFamily,
             font_weight: fontWeight,
             color: color,
-            text_align: textAlign
+            text_align: textAlign,
+            writing_mode: writingMode
         });
         
         persistentState.updateTextRow(selectedObject.key, updates);
