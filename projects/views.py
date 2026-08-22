@@ -407,6 +407,58 @@ def download_single_page_pdf(request, project_id: int, pk: int):
 
 
 @login_required
+def template_preview_image(request, project_id: int, template_id: int):
+    """テンプレートPDFのプレビュー画像（PNG）を返す"""
+    project = get_object_or_404(_user_project_qs(request.user), pk=project_id)
+    template = get_object_or_404(ProjectTemplate, pk=template_id, project=project)
+    
+    if not template.template_file:
+        return HttpResponse(status=404)
+    
+    try:
+        # PDFをPNG画像に変換
+        from reportlab.lib.pagesizes import A4
+        from reportlab.pdfgen import canvas as pdf_canvas
+        from io import BytesIO
+        from PIL import Image
+        
+        # テンプレートPDFを読み込み
+        template_pdf_path = template.template_file.path
+        
+        # PyMuPDF (fitz) を使用してPDFを画像に変換
+        try:
+            import fitz  # PyMuPDF
+            doc = fitz.open(template_pdf_path)
+            page = doc[0]  # 最初のページ
+            
+            # 画像としてレンダリング（解像度: 72 DPI）
+            pix = page.get_pixmap(matrix=fitz.Matrix(1, 1))
+            png_bytes = pix.tobytes("png")
+            
+            doc.close()
+            
+            response = HttpResponse(png_bytes, content_type='image/png')
+            response['Content-Disposition'] = f'inline; filename="template_{template_id}.png"'
+            return response
+            
+        except ImportError:
+            # PyMuPDFが利用できない場合、空の画像を返す
+            img = Image.new('RGB', (600, 848), color='white')
+            buffer = BytesIO()
+            img.save(buffer, format='PNG')
+            buffer.seek(0)
+            response = HttpResponse(buffer.getvalue(), content_type='image/png')
+            response['Content-Disposition'] = f'inline; filename="template_{template_id}.png"'
+            return response
+            
+    except Exception as e:
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.error(f"Template preview error: {e}")
+        return HttpResponse(status=500)
+
+
+@login_required
 def page_preview(request, project_id: int, pk: int):
     """htmx用ページプレビューエンドポイント"""
     project = get_object_or_404(_user_project_qs(request.user), pk=project_id)

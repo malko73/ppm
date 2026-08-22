@@ -25,7 +25,7 @@
         {# Canvas: PDF background + overlay elements #}
         <div class="layout-canvas-container">
             <div class="layout-canvas" id="layoutCanvas">
-                <img src="{{ template.template_file.url }}" alt="Template PDF" class="template-bg" id="templateBg">
+                <img src="{% url 'template_preview' project.pk template.pk %}" alt="Template PDF" class="template-bg" id="templateBg">
                 
                 {# Text overlay elements #}
                 {% for text in text_layout_objects %}

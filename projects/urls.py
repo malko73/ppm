@@ -28,4 +28,5 @@ urlpatterns = [
     # Layout Editor: P0 Vertical Slice
     path('projects/<int:project_id>/layout-editor/', views.layout_editor, name='layout_editor'),
     path('projects/<int:project_id>/templates/<int:template_id>/layout-editor/', views.layout_editor, name='layout_editor_template'),
+    path('projects/<int:project_id>/templates/<int:template_id>/preview/', views.template_preview_image, name='template_preview'),
 ]
