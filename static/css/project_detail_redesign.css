@@ -36,11 +36,9 @@
     padding: 0.375rem 0.75rem;
 }
 
-/* ===== 2-Pane Layout Container ===== */
+/* ===== Page List Container ===== */
 .project-detail-container {
-    display: grid;
-    grid-template-columns: 1fr 1.2fr;
-    gap: 20px;
+    display: block;
     min-height: calc(100vh - 400px);
 }
 
