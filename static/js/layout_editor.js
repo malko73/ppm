@@ -122,6 +122,7 @@ document.addEventListener('DOMContentLoaded', function() {
     setupZoomControls();
     setupLayerPanel();
     setupUndoRedoButtons();
+    setupAddElementButtons();
     
     // Initial render
     redrawUI();
@@ -356,12 +357,16 @@ function updatePropertyPanel() {
     
     if (!row) return;
     
-    const formHtml = `
+    let formHtml = `
         <div class="property-item">
             <h5>${row.label}</h5>
             <p class="text-muted small">
-                <strong>Type:</strong> ${selectedObject.type} | <strong>Key:</strong> ${selectedObject.key}
+                <strong>Type:</strong> ${selectedObject.type} | <strong>Key:</strong> ${row.key}
             </p>
+        </div>
+        <div class="form-group">
+            <label>ラベル</label>
+            <input type="text" class="form-control form-control-sm" id="propLabel" value="${row.label}">
         </div>
         <div class="form-group">
             <label>X 位置 (mm)</label>
@@ -379,13 +384,58 @@ function updatePropertyPanel() {
             <label>高さ (mm)</label>
             <input type="number" class="form-control form-control-sm" id="propH" value="${row.h}" step="0.1">
         </div>
+    `;
+    
+    // Add text-specific attributes
+    if (selectedObject.type === 'text') {
+        formHtml += `
+            <hr class="my-2">
+            <h6 class="text-muted">テキスト属性</h6>
+            <div class="form-group">
+                <label>フォントサイズ (pt)</label>
+                <input type="number" class="form-control form-control-sm" id="propFontSize" value="${row.font_size || 12}" step="1" min="6" max="72">
+            </div>
+            <div class="form-group">
+                <label>フォント</label>
+                <select class="form-control form-control-sm" id="propFontFamily">
+                    <option value="gothic" ${row.font_family === 'gothic' ? 'selected' : ''}>ゴシック</option>
+                    <option value="mincho" ${row.font_family === 'mincho' ? 'selected' : ''}>明朝</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label>太さ</label>
+                <select class="form-control form-control-sm" id="propFontWeight">
+                    <option value="normal" ${row.font_weight === 'normal' ? 'selected' : ''}>通常</option>
+                    <option value="bold" ${row.font_weight === 'bold' ? 'selected' : ''}>太字</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label>色</label>
+                <input type="color" class="form-control form-control-sm" id="propColor" value="${row.color || '#000000'}">
+            </div>
+            <div class="form-group">
+                <label>揃え</label>
+                <select class="form-control form-control-sm" id="propTextAlign">
+                    <option value="left" ${row.text_align === 'left' ? 'selected' : ''}>左</option>
+                    <option value="center" ${row.text_align === 'center' ? 'selected' : ''}>中央</option>
+                    <option value="right" ${row.text_align === 'right' ? 'selected' : ''}>右</option>
+                </select>
+            </div>
+        `;
+    }
+    
+    formHtml += `
         <button class="btn btn-sm btn-outline-primary w-100 mt-2" id="applyPropButton">
             適用
+        </button>
+        <button class="btn btn-sm btn-outline-danger w-100 mt-2" id="deletePropButton">
+            削除
         </button>
     `;
     
     document.getElementById('propertyForm').innerHTML = formHtml;
     document.getElementById('applyPropButton').addEventListener('click', applyPropertyChanges);
+    document.getElementById('deletePropButton').addEventListener('click', deleteSelectedElement);
 }
 
 function applyPropertyChanges() {
@@ -395,14 +445,34 @@ function applyPropertyChanges() {
     const y = parseFloat(document.getElementById('propY').value);
     const w = parseFloat(document.getElementById('propW').value);
     const h = parseFloat(document.getElementById('propH').value);
+    const label = document.getElementById('propLabel').value;
+    
+    const updates = { x, y, w, h, label };
     
     if (selectedObject.type === 'text') {
-        persistentState.updateTextRow(selectedObject.key, { x, y, w, h });
+        // Add text-specific properties
+        const fontSize = parseInt(document.getElementById('propFontSize').value);
+        const fontFamily = document.getElementById('propFontFamily').value;
+        const fontWeight = document.getElementById('propFontWeight').value;
+        const color = document.getElementById('propColor').value;
+        const textAlign = document.getElementById('propTextAlign').value;
+        
+        Object.assign(updates, {
+            font_size: fontSize,
+            font_family: fontFamily,
+            font_weight: fontWeight,
+            color: color,
+            text_align: textAlign
+        });
+        
+        persistentState.updateTextRow(selectedObject.key, updates);
     } else {
-        persistentState.updateImageRow(selectedObject.key, { x, y, w, h });
+        persistentState.updateImageRow(selectedObject.key, updates);
     }
     
+    pushHistory();
     redrawUI();
+    updatePropertyPanel();
 }
 
 // ===== Zoom Controls =====
@@ -462,6 +532,85 @@ function setupLayerPanel() {
             gridSnapEnabled = e.target.checked;
         });
     }
+}
+
+// ===== Add Element Functions =====
+
+function setupAddElementButtons() {
+    const addTextButton = document.getElementById('addTextButton');
+    const addImageButton = document.getElementById('addImageButton');
+    
+    if (addTextButton) {
+        addTextButton.addEventListener('click', addTextElement);
+    }
+    
+    if (addImageButton) {
+        addImageButton.addEventListener('click', addImageElement);
+    }
+}
+
+function generateUniqueKey(prefix, existingKeys) {
+    let counter = 1;
+    let key = `${prefix}_${counter}`;
+    while (existingKeys.includes(key)) {
+        counter++;
+        key = `${prefix}_${counter}`;
+    }
+    return key;
+}
+
+function addTextElement() {
+    const existingKeys = [
+        ...persistentState.textRows.map(r => r.key),
+        ...persistentState.imageRows.map(r => r.key)
+    ];
+    
+    const newKey = generateUniqueKey('text', existingKeys);
+    const newText = {
+        key: newKey,
+        label: `新しいテキスト ${persistentState.textRows.length + 1}`,
+        x: 20.0,
+        y: 20.0,
+        w: 80.0,
+        h: 10.0,
+        font_size: 12,
+        font_family: 'gothic',
+        font_weight: 'normal',
+        color: '#000000',
+        text_align: 'left',
+        writing_mode: 'horizontal-tb'
+    };
+    
+    persistentState.textRows.push(newText);
+    pushHistory();
+    redrawUI();
+    
+    // Select the new element
+    selectElement('text', newKey);
+}
+
+function addImageElement() {
+    const existingKeys = [
+        ...persistentState.textRows.map(r => r.key),
+        ...persistentState.imageRows.map(r => r.key)
+    ];
+    
+    const newKey = generateUniqueKey('image', existingKeys);
+    const newImage = {
+        key: newKey,
+        label: `新しい画像 ${persistentState.imageRows.length + 1}`,
+        x: 20.0,
+        y: 40.0,
+        w: 80.0,
+        h: 60.0
+    };
+    
+    persistentState.imageRows.push(newImage);
+    pushHistory();
+    redrawUI();
+    
+    // Select the new element
+    selectElement('image', newKey);
 }
 
 function updateLayerPanel() {
@@ -553,6 +702,28 @@ function redo() {
     }
 }
 
+function deleteSelectedElement() {
+    if (!selectedObject) return;
+    
+    const confirmed = confirm(`"${selectedObject.key}"を削除しますか？`);
+    if (!confirmed) return;
+    
+    if (selectedObject.type === 'text') {
+        persistentState.textRows = persistentState.textRows.filter(
+            r => r.key !== selectedObject.key
+        );
+    } else if (selectedObject.type === 'image') {
+        persistentState.imageRows = persistentState.imageRows.filter(
+            r => r.key !== selectedObject.key
+        );
+    }
+    
+    selectedObject = null;
+    pushHistory();
+    redrawUI();
+    updatePropertyPanel();
+}
+
 // ===== Keyboard Shortcuts =====
 
 function setupKeyboardEvents() {
@@ -589,7 +760,7 @@ function onKeyDown(event) {
         case 'Delete':
         case 'Backspace':
             event.preventDefault();
-            // TODO: Implement delete (out of Vertical Slice)
+            deleteSelectedElement();
             break;
         case 'z':
             if (event.ctrlKey || event.metaKey) {
@@ -618,28 +789,14 @@ function setupButtonEvents() {
 }
 
 function saveToPdf() {
-    if (!selectedObject) {
-        alert('要素を選択してください');
-        return;
-    }
-    
-    // Get current persistent state values
-    const row = selectedObject.type === 'text'
-        ? persistentState.textRows.find(r => r.key === selectedObject.key)
-        : persistentState.imageRows.find(r => r.key === selectedObject.key);
-    
-    if (!row) return;
-    
+    // Save all elements in bulk
     const payload = {
-        type: selectedObject.type,
-        key: selectedObject.key,
-        x: row.x,
-        y: row.y,
-        w: row.w,
-        h: row.h
+        bulk_save: true,
+        text_layout: persistentState.textRows,
+        image_layout: persistentState.imageRows
     };
     
-    console.log('Sending to server (Persistent State only):', payload);
+    console.log('Sending bulk save to server:', payload);
     
     fetch(SERVER_DATA.LAYOUT_EDITOR_URL, {
         method: 'POST',
@@ -652,7 +809,7 @@ function saveToPdf() {
     .then(response => response.json())
     .then(data => {
         if (data.status === 'success') {
-            alert(`保存成功:\n${data.message}\n\n保存値 (mm):\nX=${data.saved_data.x_mm}, Y=${data.saved_data.y_mm}\nW=${data.saved_data.w_mm}, H=${data.saved_data.h_mm}`);
+            alert(`保存成功:\n${data.message}`);
             
             setTimeout(() => {
                 window.open(SERVER_DATA.PROJECT_PDF_URL, '_blank');

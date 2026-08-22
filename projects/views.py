@@ -686,6 +686,66 @@ def layout_editor(request, project_id: int, template_id: int = None):
         try:
             data = json.loads(request.body)
             
+            # Check if this is a bulk save operation
+            if data.get('bulk_save'):
+                text_layout_data = data.get('text_layout', [])
+                image_layout_data = data.get('image_layout', [])
+                
+                # default_positions を取得（新規作成）
+                default_positions = template.default_positions or {}
+                
+                # テンプレートサイズを保持
+                if 'width_mm' not in default_positions:
+                    default_positions['width_mm'] = 210.0
+                if 'height_mm' not in default_positions:
+                    default_positions['height_mm'] = 297.0
+                
+                # Process text layout
+                processed_text_layout = []
+                for item in text_layout_data:
+                    processed_item = {
+                        'key': item.get('key'),
+                        'label': item.get('label', ''),
+                        'x': CoordinateConverter.round_mm(float(item.get('x', 0)), 2),
+                        'y': CoordinateConverter.round_mm(float(item.get('y', 0)), 2),
+                        'w': CoordinateConverter.round_mm(float(item.get('w', 0)), 2),
+                        'h': CoordinateConverter.round_mm(float(item.get('h', 0)), 2),
+                        'font_size': int(item.get('font_size', 12)),
+                        'font_family': item.get('font_family', 'gothic'),
+                        'font_weight': item.get('font_weight', 'normal'),
+                        'color': item.get('color', '#000000'),
+                        'text_align': item.get('text_align', 'left'),
+                        'writing_mode': item.get('writing_mode', 'horizontal-tb')
+                    }
+                    processed_text_layout.append(processed_item)
+                
+                # Process image layout
+                processed_image_layout = []
+                for item in image_layout_data:
+                    processed_item = {
+                        'key': item.get('key'),
+                        'label': item.get('label', ''),
+                        'x': CoordinateConverter.round_mm(float(item.get('x', 0)), 2),
+                        'y': CoordinateConverter.round_mm(float(item.get('y', 0)), 2),
+                        'w': CoordinateConverter.round_mm(float(item.get('w', 0)), 2),
+                        'h': CoordinateConverter.round_mm(float(item.get('h', 0)), 2)
+                    }
+                    processed_image_layout.append(processed_item)
+                
+                # Update default_positions
+                default_positions['text_layout'] = processed_text_layout
+                default_positions['image_layout'] = processed_image_layout
+                
+                # Save template
+                template.default_positions = default_positions
+                template.save(update_fields=['default_positions', 'updated_at'])
+                
+                return JsonResponse({
+                    'status': 'success',
+                    'message': f'全要素を保存しました（テキスト: {len(processed_text_layout)}個, 画像: {len(processed_image_layout)}個）'
+                })
+            
+            # Single element save (original logic)
             element_type = data.get('type')  # 'text' or 'image'
             element_key = data.get('key')
             x_mm = float(data.get('x'))
