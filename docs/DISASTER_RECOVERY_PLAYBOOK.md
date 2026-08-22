@@ -15,6 +15,55 @@ Complete procedure to recover PPM (Portable PDF Manager) on a new VPS from backu
 
 ---
 
+## Phase 0: Environment Setup (Est. 5 minutes)
+
+### 0.1 Export Required Variables
+
+Before starting recovery, set the following environment variables to match your backup configuration:
+
+```bash
+# AWS Configuration (REQUIRED)
+export AWS_S3_BUCKET="ppm-backups"           # S3 bucket name
+export AWS_S3_PREFIX="ppm-backups"           # S3 prefix/folder path
+export AWS_REGION="ap-northeast-1"           # AWS region (e.g., ap-northeast-1, us-west-1)
+
+# Verify configuration
+echo "AWS_S3_BUCKET: ${AWS_S3_BUCKET}"
+echo "AWS_S3_PREFIX: ${AWS_S3_PREFIX}"
+echo "AWS_REGION: ${AWS_REGION}"
+```
+
+**Expected output**: Your S3 bucket configuration should be displayed.
+
+### 0.2 Verify AWS Credentials
+
+Ensure AWS credentials are configured and valid:
+
+```bash
+# Check AWS CLI is installed
+aws --version
+
+# Verify credentials
+aws sts get-caller-identity --region ${AWS_REGION}
+
+# Expected output: Valid AWS account information
+# {
+#     "UserId": "...",
+#     "Account": "123456789012",
+#     "Arn": "arn:aws:iam::123456789012:user/..."
+# }
+```
+
+**Note**: If this command fails, configure AWS credentials:
+```bash
+aws configure
+# or set environment variables:
+export AWS_ACCESS_KEY_ID="..."
+export AWS_SECRET_ACCESS_KEY="..."
+```
+
+---
+
 ## Phase 1: New VPS Provisioning (Est. 30 minutes)
 
 ### 1.1 VPS Setup
@@ -69,7 +118,48 @@ ALTER DATABASE ppm SET timezone = 'UTC';
 EOF
 ```
 
-### 1.3 Firewall & Network (if applicable)
+### 1.3 PostgreSQL Configuration
+
+#### Using .pgpass for Secure Password Handling
+
+Instead of hardcoding passwords in commands or environment variables, use PostgreSQL's `.pgpass` file:
+
+```bash
+# Create .pgpass file (in root user's home, or later in ppm user's home)
+mkdir -p ~/.postgresql
+touch ~/.postgresql/.pgpass
+chmod 600 ~/.postgresql/.pgpass
+
+# Add credentials:
+# Format: hostname:port:database:username:password
+cat >> ~/.postgresql/.pgpass << EOF
+localhost:5432:ppm:ppm:YOUR_SECURE_PASSWORD
+EOF
+
+# Verify .pgpass
+cat ~/.postgresql/.pgpass
+```
+
+#### Setup PostgreSQL User and Database
+
+```bash
+# Create user (without password in command)
+sudo -u postgres psql << EOF
+CREATE USER ppm;
+CREATE DATABASE ppm OWNER ppm;
+ALTER DATABASE ppm SET timezone = 'UTC';
+EOF
+
+# Test connection using .pgpass (should not prompt for password)
+psql -h localhost -U ppm -d ppm -c "SELECT 1;"
+```
+
+**Key Points**:
+- Never use passwords in CLI: `psql -U ppm -W ...` (interactive) or `PGPASSWORD=... psql`
+- Use `.pgpass` file with 600 permissions
+- After recovery, verify no secrets in logs: `grep -i password /var/log/postgresql/*.log || echo "OK"`
+
+### 1.4 Firewall & Network (if applicable)
 
 ```bash
 # Allow SSH, HTTP, HTTPS
@@ -139,16 +229,25 @@ mkdir -p /var/lib/ppm/restore/${BACKUP_DATE}
 cd /var/lib/ppm/restore/${BACKUP_DATE}
 
 # Download backup set from S3
+# Uses environment variables from Phase 0: AWS_S3_BUCKET, AWS_S3_PREFIX, AWS_REGION
 # Requires AWS credentials configured (via ~/.aws/credentials or IAM role)
 
 aws s3 cp \
-    s3://ppm-backups/ppm-backups/${BACKUP_DATE}/ \
+    s3://${AWS_S3_BUCKET}/${AWS_S3_PREFIX}/${BACKUP_DATE}/ \
     . \
     --recursive \
-    --region ap-northeast-1
+    --region ${AWS_REGION}
 
 # Verify files downloaded
 ls -lh
+
+# Expected files:
+# - ppm_db_YYYYMMDD.sql
+# - ppm_db_YYYYMMDD.sql.sha256
+# - media_YYYYMMDD.tar.gz
+# - media_YYYYMMDD.tar.gz.sha256
+# - .env.gpg
+# - .env.gpg.sha256
 ```
 
 ### 3.2 Verify Checksums

@@ -204,6 +204,112 @@ sha256sum -c ppm_db_20260822.sql.sha256
 
 ---
 
+## GPG Key Setup (REQUIRED)
+
+Encryption of `.env` file requires GPG key setup. This must be done before first backup.
+
+### Step 1: Generate GPG Key (if not exists)
+
+```bash
+# Create a new GPG key (interactive)
+gpg --gen-key
+
+# Or for modern systems:
+gpg --full-generate-key
+
+# When prompted, choose:
+# - Kind: RSA and RSA (option 1)
+# - Keysize: 4096
+# - Valid for: 1y (or your preference)
+# - Real name: ppm-backup
+# - Email: devops@ppm.local
+# - Passphrase: (strong password)
+```
+
+### Step 2: Identify Your Key
+
+```bash
+# List all keys
+gpg --list-keys --keyid-format LONG
+
+# Output example:
+# pub   rsa4096/ABCD1234EFGH5678 2026-08-22 [SC]
+#       UID [ultimate] ppm-backup <devops@ppm.local>
+#       sub   rsa4096/ZYXW9876VUTS4321 2026-08-22 [E]
+
+# Use the long format key ID (ABCD1234EFGH5678) as GPG_RECIPIENT
+```
+
+### Step 3: Set in Backup Configuration
+
+```bash
+# In .env.backup or environment:
+export GPG_RECIPIENT="ABCD1234EFGH5678"
+
+# Verify it's recognized
+gpg --list-keys ${GPG_RECIPIENT}
+# Expected: Key found and displayed
+```
+
+### Step 4: Preflight Check (before first backup)
+
+```bash
+# Test encryption/decryption round-trip
+export GPG_RECIPIENT="ABCD1234EFGH5678"
+
+# Simple test
+echo "TEST DATA" | gpg --encrypt --recipient ${GPG_RECIPIENT} | gpg --decrypt
+
+# Expected output: TEST DATA (decryption successful)
+
+# Test with actual .env
+gpg --encrypt --recipient ${GPG_RECIPIENT} < .env > .env.test.gpg
+gpg --decrypt < .env.test.gpg > .env.test.restored
+
+# Verify files match
+diff .env .env.test.restored
+
+# Expected: No differences (files match)
+rm .env.test.gpg .env.test.restored
+```
+
+**Important**: If preflight check fails, fix GPG setup before running backup.
+
+### Step 5: Set Environment Variables
+
+```bash
+# Create .env.backup with GPG recipient
+cat >> .env.backup << EOF
+GPG_RECIPIENT="ABCD1234EFGH5678"
+AWS_S3_BUCKET="ppm-backups"
+AWS_REGION="ap-northeast-1"
+EOF
+
+# Source it before backup
+source .env.backup
+
+# Test backup (dry-run)
+./scripts/backup.sh --dry-run
+
+# Test backup (local only, no S3)
+./scripts/backup.sh --local-only
+```
+
+### Recovery: Encryption Key Separation (CRITICAL)
+
+The encryption key is stored SEPARATELY from the backups:
+
+- **Backup side** (S3): Contains `.env.gpg` (encrypted secrets)
+- **Recovery side** (separate system): Accesses GPG private key via:
+  - AWS KMS (recommended)
+  - HashiCorp Vault
+  - YubiKey / Hardware token
+  - Air-gapped secure storage
+
+**Design principle**: Even if S3 bucket is compromised, encrypted `.env` files cannot be decrypted without access to the separate key management system.
+
+---
+
 ## Troubleshooting
 
 ### PostgreSQL dump fails
