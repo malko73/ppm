@@ -58,12 +58,12 @@
                     </button>
                     <ul class="dropdown-menu dropdown-menu-end">
                         <li>
-                            <a class="dropdown-item" href="{% url 'page_update' page.pk %}">
+                            <a class="dropdown-item" href="{% url 'page_update' project.pk page.pk %}">
                                 編集
                             </a>
                         </li>
                         <li>
-                            <a class="dropdown-item" href="{% url 'page_pdf' page.pk %}" target="_blank" rel="noopener noreferrer">
+                            <a class="dropdown-item" href="{% url 'page_pdf' project.pk page.pk %}" target="_blank" rel="noopener noreferrer">
                                 PDFを開く
                             </a>
                         </li>
@@ -79,7 +79,7 @@
                         </li>
                         <li><hr class="dropdown-divider"></li>
                         <li>
-                            <a class="dropdown-item text-danger" href="{% url 'page_delete' page.pk %}">
+                            <a class="dropdown-item text-danger" href="{% url 'page_delete' project.pk page.pk %}">
                                 削除
                             </a>
                         </li>
