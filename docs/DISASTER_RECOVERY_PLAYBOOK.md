@@ -323,7 +323,13 @@ echo "=== Retrieving Encryption Key ==="
 # gpg --import /mnt/secure/gpg_key.asc
 
 # Verify key is available
-gpg --list-keys | grep -i backup
+if gpg --list-secret-keys | grep -q backup; then
+    echo "✓ Secret key is available"
+    KEY_STATUS="READY"
+else
+    echo "✗ Secret key NOT found - ABORT RECOVERY"
+    exit 1
+fi
 
 if [[ $? -ne 0 ]]; then
     echo "✗ GPG key not found - ABORT RECOVERY"
@@ -346,10 +352,10 @@ if [[ ! -f .env.restored ]] || [[ ! -s .env.restored ]]; then
     exit 1
 fi
 
-# Verify .env structure
+# Verify .env structure (without displaying secrets)
 if grep -q "^SECRET_KEY=" .env.restored && \
    grep -q "^DATABASE_URL=" .env.restored; then
-    echo "✓ .env decrypted and verified"
+    echo "✓ .env decrypted and verified (secrets not displayed)"
 else
     echo "✗ .env missing required variables - ABORT RECOVERY"
     exit 1
@@ -443,8 +449,9 @@ echo "=== Configuring Application Environment ==="
 cd /home/ppm/ppm
 cp /var/lib/ppm/restore/${BACKUP_DATE}/.env.restored .env
 
-# Verify critical settings
-grep -E "^(SECRET_KEY|DEBUG|ALLOWED_HOSTS|DATABASE_URL)" .env
+# Verify critical settings (secrets not displayed in logs)
+grep -q '^SECRET_KEY=' .env && echo "✓ SECRET_KEY: PRESENT"
+grep -q '^DATABASE_URL=' .env && echo "✓ DATABASE_URL: PRESENT"
 
 # Set file permissions
 chmod 600 .env
