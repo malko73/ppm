@@ -10,10 +10,15 @@
 /* ===== Main Container ===== */
 
 .layout-editor-wrapper {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
     display: flex;
     flex-direction: column;
-    height: calc(100vh - 60px);
     background: white;
+    z-index: 1050;
 }
 
 .layout-editor-header {
