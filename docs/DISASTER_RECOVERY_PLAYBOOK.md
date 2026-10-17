@@ -123,11 +123,25 @@ Complete procedure to recover PPM (Portable PDF Manager) on a new VPS from backu
 > | Secret key (armored, passphrase-protected) | `gdrive:ppm-backup/keys/ppm-backup-secret.asc` — 951 B, sha256 `b6e2ddb4d6bfaf1efbe972e375bb7e19180e9799eed61692aa91be1612c8472e` |
 > | Key fingerprint | `2894659F30D57F5A59F7D24E18073F5C40179CA3` (`ppm-backup@y-asahi.local`, expires 2028-10-16) |
 > | Live secret key | Mac `~/.gnupg-ppm` (`0700`) |
-> | Passphrase | **PENDING — not yet off-device.** Currently only `~/.ppm-backup-passphrase` (`0600`) on the Mac |
+> | Passphrase | 1Password item **`PPM backup GPG passphrase`** (stored by the owner 2026-10-17). Live copy for automation: `~/.ppm-backup-passphrase` (`0600`, 48 chars) |
 >
 > The exported key carries `iter+salt S2K, algo 7 (AES-256), skey: [v4 protected]`, so the Drive copy
-> alone is useless without the passphrase. **Until the passphrase is stored off-device the escrow is
-> incomplete**: losing the Mac still loses the ability to decrypt every artifact.
+> alone is useless without the passphrase — key on Drive and passphrase in 1Password are now in
+> **separate accounts**, so a compromise of either alone does not open the backups.
+>
+> **Integrity cross-check for the escrowed passphrase** (safe to publish — the value is 288 random
+> bits, so the digest is not invertible):
+>
+> ```bash
+> shasum -a 256 < ~/.ppm-backup-passphrase
+> # must equal: c3d07a442001077dc74ae4ef5a44e16961023247ecdc2b0dde998ad260388cee  (48 chars, no newline)
+> ```
+>
+> Status: owner-attested. It is **not machine-verified from this host** — `op account list` returns
+> `[]` (no 1Password account configured for the CLI, the `OP_SERVICE_ACCOUNT_TOKEN` in
+> `~/.hermes/.env` fails to parse, desktop app absent), so the CLI cannot read the item back.
+> Once `op` is signed in:
+> `op item get "PPM backup GPG passphrase" --fields label=password | sha256sum` must equal the digest above.
 >
 > Restore drill that was actually run (fresh `GNUPGHOME`, key pulled back **from Drive**):
 >
