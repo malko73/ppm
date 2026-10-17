@@ -123,19 +123,23 @@ Complete procedure to recover PPM (Portable PDF Manager) on a new VPS from backu
 > | Secret key (armored, passphrase-protected) | `gdrive:ppm-backup/keys/ppm-backup-secret.asc` — 951 B, sha256 `b6e2ddb4d6bfaf1efbe972e375bb7e19180e9799eed61692aa91be1612c8472e` |
 > | Key fingerprint | `2894659F30D57F5A59F7D24E18073F5C40179CA3` (`ppm-backup@y-asahi.local`, expires 2028-10-16) |
 > | Live secret key | Mac `~/.gnupg-ppm` (`0700`) |
-> | Passphrase | **1Password item `PPM backup GPG passphrase` in vault `Personal` — VERIFIED 2026-10-17 20:51 JST.** The owner ran `op item get "PPM backup GPG passphrase" --fields label=password \| tr -d '\n' \| shasum -a 256` and got `c3d07a44…388cee`, matching the authoritative local file (`~/.ppm-backup-passphrase`, 48 chars). The item is passphrase-only (no field for the key); the key itself is the Drive object below. |
+> | Passphrase | **1Password item `PPM backup GPG passphrase` in vault `Personal` — created and checked by the owner 2026-10-17 20:51 JST.** Per operating rule 23 no digest, length or prefix of the value is recorded in this repository; the acceptance test is that the stored passphrase **decrypts the newest artifact** (procedure below). The item is passphrase-only; the key itself is the Drive object above. |
 >
 > The exported key carries `iter+salt S2K, algo 7 (AES-256), skey: [v4 protected]`, so the Drive copy
 > alone is useless without the passphrase — the two halves now live in **different providers**
 > (Google Drive vs 1Password), so compromising either alone does not open the backups.
 >
-> **Integrity cross-check** (safe to publish — the value is 288 random bits, so the digest is not
-> invertible):
+> **Acceptance test: decrypt, do not fingerprint.** A digest comparison is deliberately not
+> documented — it is redundant, because decryption is the real test, and publishing a digest of a
+> secret hands out a verifier for it.
 >
 > ```bash
-> shasum -a 256 < ~/.ppm-backup-passphrase
-> op item get "PPM backup GPG passphrase" --fields label=password | tr -d '\n' | shasum -a 256
-> # both must print: c3d07a442001077dc74ae4ef5a44e16961023247ecdc2b0dde998ad260388cee
+> export GNUPGHOME="$HOME/.gnupg-ppm"
+> rclone copyto gdrive:ppm-backup/keys/ppm-backup-secret.asc /tmp/k.asc && gpg --batch --import /tmp/k.asc
+> rclone copyto "$(rclone lsf gdrive:ppm-backup/db/ | sort -r | sed -n 1p | sed 's|^|gdrive:ppm-backup/db/|')" /tmp/a.gpg
+> read -rs PW; printf '%s' "$PW" > /tmp/pw; chmod 600 /tmp/pw; unset PW   # paste from 1Password
+> gpg --batch --pinentry-mode loopback --passphrase-file /tmp/pw --decrypt /tmp/a.gpg | gzip -t && echo "PASSPHRASE OK"
+> rm -f /tmp/pw /tmp/a.gpg /tmp/k.asc
 > ```
 >
 > History of this escrow, so the failure modes are not repeated:
@@ -148,6 +152,8 @@ Complete procedure to recover PPM (Portable PDF Manager) on a new VPS from backu
 >   must be retried after `eval $(op signin)`.
 > * Create without exposing the value by generating a template file (0600) from the local
 >   passphrase and running `op item create --template … --vault "Personal"`, then deleting it.
+> * An earlier revision of this section published a sha256 digest of the passphrase; it was
+>   removed (rule 23 — a published digest is a new oracle, and it buys nothing over decrypting).
 >
 > Restore drill that was actually run (fresh `GNUPGHOME`, key pulled back **from Drive**):
 >
