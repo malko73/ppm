@@ -140,8 +140,21 @@ Complete procedure to recover PPM (Portable PDF Manager) on a new VPS from backu
 > Status: owner-attested. It is **not machine-verified from this host** — `op account list` returns
 > `[]` (no 1Password account configured for the CLI, the `OP_SERVICE_ACCOUNT_TOKEN` in
 > `~/.hermes/.env` fails to parse, desktop app absent), so the CLI cannot read the item back.
-> Once `op` is signed in:
-> `op item get "PPM backup GPG passphrase" --fields label=password | sha256sum` must equal the digest above.
+>
+> **Verify without the CLI** (works with the 1Password web vault or phone app — no desktop app
+> needed). Copy the item's password to the clipboard, then:
+>
+> ```bash
+> pbpaste | tr -d '\n' | shasum -a 256
+> # c3d07a442001077dc74ae4ef5a44e16961023247ecdc2b0dde998ad260388cee  <- must match
+> ```
+>
+> Note: `sha256` of empty input is `e3b0c442…b855`. If you see that digest, the copy did not
+> happen (or the CLI failed and emitted nothing) — nothing was verified.
+>
+> With the CLI signed in (desktop app integration, or a service-account token in
+> `OP_SERVICE_ACCOUNT_TOKEN`):
+> `op item get "PPM backup GPG passphrase" --fields label=password | shasum -a 256` must equal the digest above.
 >
 > Restore drill that was actually run (fresh `GNUPGHOME`, key pulled back **from Drive**):
 >
