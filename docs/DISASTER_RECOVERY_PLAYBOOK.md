@@ -123,38 +123,32 @@ Complete procedure to recover PPM (Portable PDF Manager) on a new VPS from backu
 > | Secret key (armored, passphrase-protected) | `gdrive:ppm-backup/keys/ppm-backup-secret.asc` — 951 B, sha256 `b6e2ddb4d6bfaf1efbe972e375bb7e19180e9799eed61692aa91be1612c8472e` |
 > | Key fingerprint | `2894659F30D57F5A59F7D24E18073F5C40179CA3` (`ppm-backup@y-asahi.local`, expires 2028-10-16) |
 > | Live secret key | Mac `~/.gnupg-ppm` (`0700`) |
-> | Passphrase | 1Password item **`PPM backup GPG passphrase`** (stored by the owner 2026-10-17). Live copy for automation: `~/.ppm-backup-passphrase` (`0600`, 48 chars) |
+> | Passphrase | **ESCROW INCOMPLETE as of 2026-10-17 20:01.** `op item get "PPM backup GPG passphrase"` returns *"isn't an item"* on the signed-in account, so no such item is visible there. The value still exists only as `~/.ppm-backup-passphrase` (`0600`, 48 chars, sha256 `c3d07a44…388cee`) on the Mac. |
 >
 > The exported key carries `iter+salt S2K, algo 7 (AES-256), skey: [v4 protected]`, so the Drive copy
-> alone is useless without the passphrase — key on Drive and passphrase in 1Password are now in
-> **separate accounts**, so a compromise of either alone does not open the backups.
+> alone is useless without the passphrase. **Because the passphrase is still single-host, losing the
+> Mac still loses every artifact** — the escrow only counts once an off-device copy is confirmed.
 >
-> **Integrity cross-check for the escrowed passphrase** (safe to publish — the value is 288 random
+> **Integrity cross-check for the passphrase** (safe to publish — the value is 288 random
 > bits, so the digest is not invertible):
 >
 > ```bash
 > shasum -a 256 < ~/.ppm-backup-passphrase
-> # must equal: c3d07a442001077dc74ae4ef5a44e16961023247ecdc2b0dde998ad260388cee  (48 chars, no newline)
+> # c3d07a442001077dc74ae4ef5a44e16961023247ecdc2b0dde998ad260388cee  (48 chars, no newline)
 > ```
 >
-> Status: owner-attested. It is **not machine-verified from this host** — `op account list` returns
-> `[]` (no 1Password account configured for the CLI, the `OP_SERVICE_ACCOUNT_TOKEN` in
-> `~/.hermes/.env` fails to parse, desktop app absent), so the CLI cannot read the item back.
->
-> **Verify without the CLI** (works with the 1Password web vault or phone app — no desktop app
-> needed). Copy the item's password to the clipboard, then:
+> To close the escrow: create the item (a ready-to-import template can be generated from the local
+> file, so the value never has to be typed or pasted into a chat), then confirm with
 >
 > ```bash
-> pbpaste | tr -d '\n' | shasum -a 256
-> # c3d07a442001077dc74ae4ef5a44e16961023247ecdc2b0dde998ad260388cee  <- must match
+> op item get "PPM backup GPG passphrase" --fields label=password | tr -d '\n' | shasum -a 256
+> # must equal the digest above; anything else means the item holds a different value
 > ```
 >
-> Note: `sha256` of empty input is `e3b0c442…b855`. If you see that digest, the copy did not
-> happen (or the CLI failed and emitted nothing) — nothing was verified.
->
-> With the CLI signed in (desktop app integration, or a service-account token in
-> `OP_SERVICE_ACCOUNT_TOKEN`):
-> `op item get "PPM backup GPG passphrase" --fields label=password | shasum -a 256` must equal the digest above.
+> Two failed verification attempts are recorded so nobody repeats them:
+> `e3b0c442…b855` is the sha256 of **empty input** (the CLI errored and emitted nothing), and
+> `6e0f0047…` was a digest of 642 bytes of **terminal prompt text** that was in the clipboard —
+> neither attempt ever hashed the passphrase, so neither says anything about the stored value.
 >
 > Restore drill that was actually run (fresh `GNUPGHOME`, key pulled back **from Drive**):
 >
