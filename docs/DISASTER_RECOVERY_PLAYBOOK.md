@@ -111,11 +111,10 @@ Complete procedure to recover PPM (Portable PDF Manager) on a new VPS from backu
 >    bounded by the schedule: 6 h for the DB, 24 h for `media/`, and only if the run succeeded.
 >    Enabling binlog means a config change, a restart, a retention policy and a restore drill — it is
 >    deliberately deferred (see `BACKUP_DR_HARDENING_PLAN.md`).
-> 2. **The 1Password copy of the passphrase has not been proven to decrypt an artifact.** On
->    2026-10-17 a value taken from the vault was 10 bytes and failed (`gpg: decryption failed`,
->    exit 2) while the Mac file decrypted the same artifact fine. Either the copy was wrong or the
->    item holds a different value — **until an artifact is decrypted with the vault copy, the
->    off-device escrow is a claim, not a fact.** The decisive test is one command (see below).
+> 2. **Passphrase escrow is now verified** (2026-10-17 22:11 JST): the 1Password item's built-in
+>    password field decrypted the newest Drive artifact. Read it by `purpose=PASSWORD` from the item
+>    JSON — `--fields label=password` returned a 65-byte string on this item that does **not** decrypt,
+>    which is what produced two false "wrong passphrase" verdicts earlier the same evening.
 > 3. The Mac remains a single point of failure for the **upload** (the VPS keeps 14 days locally, so
 >    short gaps are recoverable) and holds the only live copy of the private key.
 > 4. Drive is the same account used by `hermes-backup`, so a Drive-side incident affects both.
@@ -138,13 +137,17 @@ Complete procedure to recover PPM (Portable PDF Manager) on a new VPS from backu
 > | Secret key (armored, passphrase-protected) | `gdrive:ppm-backup/keys/ppm-backup-secret.asc` — 951 B, sha256 `b6e2ddb4d6bfaf1efbe972e375bb7e19180e9799eed61692aa91be1612c8472e` |
 > | Key fingerprint | `2894659F30D57F5A59F7D24E18073F5C40179CA3` (`ppm-backup@y-asahi.local`, expires 2028-10-16) |
 > | Live secret key | Mac `~/.gnupg-ppm` (`0700`) |
-> | Passphrase | 1Password item `PPM backup GPG passphrase` (vault `Personal`) — **UNVERIFIED: the vault copy has not yet decrypted an artifact.** The working copy is the Mac file `~/.ppm-backup-passphrase`. No digest, length or prefix of the value is recorded here. |
+> | Passphrase | 1Password item `PPM backup GPG passphrase` (vault `Personal`, id `zm4ts5bq4rcoz255crzbaq3o24`) — **VERIFIED 2026-10-17 22:11 JST: the built-in password field decrypts the newest Drive artifact.** No digest, length or prefix of the value is recorded here. |
 >
-> **Decisive test for the vault copy** (this, not a digest comparison, is what "escrowed" means):
+> **How to read the passphrase back — do NOT use `--fields label=password`.** On this item that
+> selector returned a 65-byte string that fails to decrypt, while the actual field is 48 characters
+> and works. Read the field by purpose instead:
 >
 > ```bash
 > eval $(op signin)
-> op item get "PPM backup GPG passphrase" --fields label=password > /tmp/op.pw && chmod 600 /tmp/op.pw
+> op item get "PPM backup GPG passphrase" --vault Personal --format json \
+>   | python3 -c 'import json,sys;print([f["value"] for f in json.load(sys.stdin)["fields"] if f.get("purpose")=="PASSWORD"][0], end="")' \
+>   > /tmp/op.pw && chmod 600 /tmp/op.pw
 > export GNUPGHOME="$HOME/.gnupg-ppm"
 > rclone copyto gdrive:ppm-backup/db/ppm_20261017_214508.sql.gz.gpg /tmp/t.gpg
 > gpg --batch --pinentry-mode loopback --passphrase-file /tmp/op.pw --decrypt /tmp/t.gpg | gzip -t \
@@ -152,10 +155,11 @@ Complete procedure to recover PPM (Portable PDF Manager) on a new VPS from backu
 > rm -f /tmp/op.pw /tmp/t.gpg
 > ```
 >
-> Run 2026-10-17 21:5x: the pasted value was 10 bytes and returned `gpg: decryption failed: No secret key`
-> (exit 2) — i.e. wrong passphrase, not a missing key. The same artifact decrypted fine with
-> `~/.ppm-backup-passphrase`. Treat the escrow as open until the command above prints
-> **VAULT PASSPHRASE OK**.
+> The item holds exactly two fields (`password` with `purpose=PASSWORD`, and `notesPlain`); the notes
+> are the four-line description above the key, with no digest. Getting here required rewriting the
+> password via `op item edit --template` with the item's **own** JSON (a from-scratch template is
+> rejected: `Item updatedAt must be > 1970-01-01`, and `op item get --format json` reports
+> `updatedAt: null`).
 >
 > The exported key carries `iter+salt S2K, algo 7 (AES-256), skey: [v4 protected]`, so the Drive copy
 > alone is useless without the passphrase — the two halves now live in **different providers**
