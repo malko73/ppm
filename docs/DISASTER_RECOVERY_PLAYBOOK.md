@@ -68,14 +68,54 @@ Complete procedure to recover PPM (Portable PDF Manager) on a new VPS from backu
 > `projects_project` / `projects_page` / `accounts_customuser` / `projects_projecttemplate` present,
 > SHA-256 identical on both sides.
 >
+> ### media archive (uploaded PDFs / images)
+>
+> | Item | Reality |
+> |---|---|
+> | Script | `/usr/local/bin/backup-ppm-media.sh` — repo source of truth `deploy/backup-ppm-media.sh` |
+> | Schedule | `/etc/cron.d/ppm-backup-media` → `30 6 * * 0` (Sundays 06:30, after the DB run) |
+> | Artifact | `/var/backups/ppm-media/ppm_media_YYYYmmdd_HHMMSS.tar.gpg` (`0600`), 3 generations kept |
+> | Sidecar | `ppm_media_*.meta` (`0600`, plaintext metadata only): `file_count`, `total_bytes`, `manifest_sha256`, `gpg_sha256` |
+> | Content | `tar -C /var/www/html -cf - media` — **no compression** (payload is PDF/PNG/JPEG) |
+> | Change detection | sorted manifest of `path/size/mtime` hashed; identical hash ⇒ the run logs `SKIP` and writes nothing |
+> | Measured | 58 files / 201,885,111 bytes → 196,837,802 B encrypted in ~9 s |
+>
+> ### Off-site copy (Mac → Google Drive)
+>
+> The VPS holds **no cloud credentials**. `~/.hermes/scripts/ppm_offsite.sh` runs on the Mac
+> (which holds the private key) and pulls the encrypted artifacts over SSH:
+>
+> | Hermes cron | Schedule | Mode | Destination |
+> |---|---|---|---|
+> | `ppm-offsite-daily` | `10 7 * * *` | `daily` | `gdrive:ppm-backup/db/` (30 generations) |
+> | `ppm-offsite-weekly` | `40 7 * * 0` | `weekly` | adds `gdrive:ppm-backup/media/` (3 generations) |
+> | `ppm-offsite-audit` | `0 8 1 * *` | `audit` | decrypts the newest Drive copy, asserts generations and heartbeat |
+>
+> Verification chain per upload: VPS `sha256sum` == local `sha256sum` → **decrypt** → `gzip -t` →
+> `-- Dump completed` trailer → `rclone copyto` → read-back size **and** md5 must match.
+> Media additionally: compare `gpg_sha256` with the sidecar, decrypt, extract, and require
+> `file_count` **and** `total_bytes` parity before upload. Everything happens in a `0700` temp dir
+> removed by `trap`; the plaintext tar is never outside it.
+>
+> Retention is explicit: generations are sorted and only the oldest beyond the keep-count are
+> deleted by name (`rclone deletefile`). `rclone delete --min-age` is deliberately **not** used,
+> because the `hermes-backup` remote silently kept ~3 days against a configured 60.
+>
+> Successful daily runs produce no stdout (silent); weekly/audit print a summary line.
+> Failures exit non-zero with a `FAILED ppm-offsite(...)` line first, which is what Discord shows.
+>
 > ### What is NOT covered (known gaps)
 >
-> 1. **No off-site copy.** Artifacts live on the same VPS disk as the database. VPS loss = all backups lost.
-> 2. **No media/ backup.** Uploaded PDFs under `media/` are not in any backup.
-> 3. **No PITR.** RPO is 24 h, and only if the 06:00 run succeeded.
-> 4. **Private-key escrow is not yet verified off-device.** Losing the Mac's `~/.gnupg-ppm` makes
->    every existing artifact permanently unreadable.
-> 5. GPG private key is passphrase-protected, but the passphrase file sits on the same host as the key.
+> 1. **No PITR.** RPO is 24 h for the DB and 7 days for `media/`, and only if the 06:00 run succeeded.
+> 2. **Private-key escrow is not yet verified off-device.** Losing the Mac's `~/.gnupg-ppm` makes
+>    every artifact — local and on Drive — permanently unreadable.
+> 3. The GPG passphrase file lives on the same host as the private key.
+> 4. **The Mac is a single point of failure for the upload** (sleep/offline ⇒ no off-site copy that day;
+>    the VPS keeps 14 days of DB artifacts so short gaps are recoverable).
+> 5. Drive is the same account used by `hermes-backup`, so a Drive-side incident affects both.
+> 6. **No import-into-scratch-DB drill on the VPS.** Decryption, integrity and content parity are
+>    proven; a full `mysql <dump>` restore onto a throwaway database has not been executed.
+
 >
 > `gpg --list-packets <artifact>` exits **2** on the VPS ("public key decryption failed: No secret
 > key") while still printing the packets — that is expected, not a corrupt file.
