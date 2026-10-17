@@ -235,5 +235,5 @@ Phase 1 は**今すぐ**実行できます。Phase 2以降は D1〜D4 の回答�
 
 ### 残課題（この計画の外／要対応）
 
-1. **1Password のパスフレーズが復号に失敗**（10バイトの値で `gpg: decryption failed`、exit 2）。Mac上の `~/.ppm-backup-passphrase` は同じartifactを復号できる。**エスクローは未成立**として扱い、判別コマンドを DR プレイブックに記載した。
+1. ~~1Password のパスフレーズが復号に失敗~~ → **解決（2026-10-17 22:11）**。原因は `op item get --fields label=password` がこのアイテムで**復号できない65バイトの値を返していた**こと。`--format json` から `purpose=PASSWORD` のフィールド（48文字）を取り出して復号 → **成功（エスクロー成立）**。アイテムは `password` + `notesPlain` の2フィールドのみで、notes は digest 抜きの4行に置換済み。教訓: **パスワードは `--fields label=password` で読まない**。
 2. PITR（D4）— 将来検討。`log_bin=OFF` のため、実装には再起動・保持設計・復元訓練が必要。
