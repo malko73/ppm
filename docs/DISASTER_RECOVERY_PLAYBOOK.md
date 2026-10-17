@@ -123,7 +123,7 @@ Complete procedure to recover PPM (Portable PDF Manager) on a new VPS from backu
 > | Secret key (armored, passphrase-protected) | `gdrive:ppm-backup/keys/ppm-backup-secret.asc` — 951 B, sha256 `b6e2ddb4d6bfaf1efbe972e375bb7e19180e9799eed61692aa91be1612c8472e` |
 > | Key fingerprint | `2894659F30D57F5A59F7D24E18073F5C40179CA3` (`ppm-backup@y-asahi.local`, expires 2028-10-16) |
 > | Live secret key | Mac `~/.gnupg-ppm` (`0700`) |
-> | Passphrase | **1Password item `PPM backup GPG passphrase` in vault `Personal` — created and checked by the owner 2026-10-17 20:51 JST.** Per operating rule 23 no digest, length or prefix of the value is recorded in this repository; the acceptance test is that the stored passphrase **decrypts the newest artifact** (procedure below). The item is passphrase-only; the key itself is the Drive object above. |
+> | Passphrase | **1Password item `PPM backup GPG passphrase` in vault `Personal` — created and checked by the owner 2026-10-17 20:51 JST.** No digest, length or prefix of the value is recorded here: it buys nothing over decrypting, and it publishes a verifier for a secret. The acceptance test is that the stored passphrase **decrypts the newest artifact** (procedure below). The item is passphrase-only; the key itself is the Drive object above. |
 >
 > The exported key carries `iter+salt S2K, algo 7 (AES-256), skey: [v4 protected]`, so the Drive copy
 > alone is useless without the passphrase — the two halves now live in **different providers**
@@ -153,7 +153,7 @@ Complete procedure to recover PPM (Portable PDF Manager) on a new VPS from backu
 > * Create without exposing the value by generating a template file (0600) from the local
 >   passphrase and running `op item create --template … --vault "Personal"`, then deleting it.
 > * An earlier revision of this section published a sha256 digest of the passphrase; it was
->   removed (rule 23 — a published digest is a new oracle, and it buys nothing over decrypting).
+>   removed: a published digest is a new oracle for the secret and it buys nothing over decrypting.
 >
 > Restore drill that was actually run (fresh `GNUPGHOME`, key pulled back **from Drive**):
 >
