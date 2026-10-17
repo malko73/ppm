@@ -23,6 +23,7 @@ from .services.csv_import import CSVImportError, CSVImportService
 from .services.pdf_renderer import PDFRenderService
 from .tasks import build_pages_zip
 from .utils.coordinates import CoordinateConverter
+from .utils import layout_schema
 
 
 def _user_project_qs(user):
@@ -676,32 +677,22 @@ def layout_editor(request, project_id: int, template_id: int = None):
     
     # ===== GET: レイアウト編集画面表示 =====
     if request.method == 'GET':
-        # default_positions から text/image layout を抽出
         default_pos = template.default_positions or {}
-        
-        # テンプレートサイズ取得（デフォルト A4）
-        template_width_mm = default_pos.get('width_mm', 210.0)
-        template_height_mm = default_pos.get('height_mm', 297.0)
-        
-        # text_layout と image_layout を取得
-        text_layout = []
-        image_layout = []
-        
-        # 既存スキーマから抽出（複数フォーマットに対応）
-        if 'text_layout' in default_pos and isinstance(default_pos['text_layout'], list):
-            text_layout = default_pos['text_layout']
-        elif 'text' in default_pos and isinstance(default_pos['text'], list):
-            text_layout = default_pos['text']
-        
-        if 'image_layout' in default_pos and isinstance(default_pos['image_layout'], list):
-            image_layout = default_pos['image_layout']
-        elif 'image' in default_pos and isinstance(default_pos['image'], list):
-            image_layout = default_pos['image']
-        
+
+        # ページサイズ: テンプレートPDFの実寸 > 旧スキーマの width_mm/height_mm > A4
+        template_width_mm, template_height_mm = layout_schema.template_size_mm(default_pos)
+        measured_size = project.template_size_mm(template)
+        if measured_size:
+            template_width_mm, template_height_mm = measured_size
+
+        # canonical (pt / flat) → エディタ行 (mm)。旧スキーマが残っていればそちらを優先。
+        text_layout, image_layout = layout_schema.rows_from_positions(default_pos)
+
         # Template rendering用に px 座標を計算（mm → px）
-        px_per_mm_x = 600.0 / template_width_mm
-        px_per_mm_y = 848.0 / template_height_mm
-        
+        px_per_mm_x, px_per_mm_y = CoordinateConverter.get_scale_factors(
+            template_width_mm, template_height_mm
+        )
+
         text_layout_with_px = []
         for text in text_layout:
             text_copy = dict(text)
@@ -710,7 +701,7 @@ def layout_editor(request, project_id: int, template_id: int = None):
             text_copy['w_px'] = text.get('w', 0) * px_per_mm_x
             text_copy['h_px'] = text.get('h', 0) * px_per_mm_y
             text_layout_with_px.append(text_copy)
-        
+
         image_layout_with_px = []
         for image in image_layout:
             image_copy = dict(image)
@@ -742,59 +733,32 @@ def layout_editor(request, project_id: int, template_id: int = None):
             if data.get('bulk_save'):
                 text_layout_data = data.get('text_layout', [])
                 image_layout_data = data.get('image_layout', [])
-                
-                # default_positions を取得（新規作成）
-                default_positions = template.default_positions or {}
-                
-                # テンプレートサイズを保持
-                if 'width_mm' not in default_positions:
-                    default_positions['width_mm'] = 210.0
-                if 'height_mm' not in default_positions:
-                    default_positions['height_mm'] = 297.0
-                
-                # Process text layout
-                processed_text_layout = []
-                for item in text_layout_data:
-                    processed_item = {
-                        'key': item.get('key'),
-                        'label': item.get('label', ''),
-                        'x': CoordinateConverter.round_mm(float(item.get('x', 0)), 2),
-                        'y': CoordinateConverter.round_mm(float(item.get('y', 0)), 2),
-                        'w': CoordinateConverter.round_mm(float(item.get('w', 0)), 2),
-                        'h': CoordinateConverter.round_mm(float(item.get('h', 0)), 2),
-                        'font_size': int(item.get('font_size', 12)),
-                        'font_family': item.get('font_family', 'gothic'),
-                        'font_weight': item.get('font_weight', 'normal'),
-                        'color': item.get('color', '#000000'),
-                        'text_align': item.get('text_align', 'left'),
-                        'writing_mode': item.get('writing_mode', 'horizontal-tb')
-                    }
-                    processed_text_layout.append(processed_item)
-                
-                # Process image layout
-                processed_image_layout = []
-                for item in image_layout_data:
-                    processed_item = {
-                        'key': item.get('key'),
-                        'label': item.get('label', ''),
-                        'x': CoordinateConverter.round_mm(float(item.get('x', 0)), 2),
-                        'y': CoordinateConverter.round_mm(float(item.get('y', 0)), 2),
-                        'w': CoordinateConverter.round_mm(float(item.get('w', 0)), 2),
-                        'h': CoordinateConverter.round_mm(float(item.get('h', 0)), 2)
-                    }
-                    processed_image_layout.append(processed_item)
-                
-                # Update default_positions
-                default_positions['text_layout'] = processed_text_layout
-                default_positions['image_layout'] = processed_image_layout
-                
-                # Save template
+                if not isinstance(text_layout_data, list) or not isinstance(image_layout_data, list):
+                    return JsonResponse({
+                        'status': 'error',
+                        'message': 'Invalid layout payload: text_layout/image_layout must be lists'
+                    }, status=400)
+
+                # エディタは mm、正準スキーマは pt（フラット）。
+                # 変換はこの境界だけで行い、DBには正準形のみを書く。
+                try:
+                    default_positions = layout_schema.merge_rows_into_positions(
+                        template.default_positions,
+                        text_layout_data,
+                        image_layout_data,
+                    )
+                except ValueError as exc:
+                    return JsonResponse({
+                        'status': 'error',
+                        'message': f'Invalid layout data: {exc}'
+                    }, status=400)
+
                 template.default_positions = default_positions
                 template.save(update_fields=['default_positions', 'updated_at'])
-                
+
                 return JsonResponse({
                     'status': 'success',
-                    'message': f'全要素を保存しました（テキスト: {len(processed_text_layout)}個, 画像: {len(processed_image_layout)}個）'
+                    'message': f'全要素を保存しました（テキスト: {len(text_layout_data)}個, 画像: {len(image_layout_data)}個）'
                 })
             
             # Single element save (original logic)
@@ -817,91 +781,45 @@ def layout_editor(request, project_id: int, template_id: int = None):
                     'message': 'Missing element key'
                 }, status=400)
             
-            # default_positions を取得（新規作成）
-            default_positions = template.default_positions or {}
-            
-            # テンプレートサイズを保持
-            if 'width_mm' not in default_positions:
-                default_positions['width_mm'] = 210.0
-            if 'height_mm' not in default_positions:
-                default_positions['height_mm'] = 297.0
-            
-            # ===== 座標更新: source of truth は mm =====
-            if element_type == 'text':
-                # text_layout リストを取得または初期化
-                text_layout = default_positions.get('text_layout', [])
-                if isinstance(text_layout, str):
-                    text_layout = json.loads(text_layout)
-                
-                # element_key に対応するアイテムを更新
-                found = False
-                for item in text_layout:
-                    if item.get('key') == element_key:
-                        # mm 値を丸めて保存（source of truth）
-                        item['x'] = CoordinateConverter.round_mm(x_mm, 2)
-                        item['y'] = CoordinateConverter.round_mm(y_mm, 2)
-                        item['w'] = CoordinateConverter.round_mm(w_mm, 2)
-                        item['h'] = CoordinateConverter.round_mm(h_mm, 2)
-                        
-                        # Update text properties if provided
-                        if 'label' in data:
-                            item['label'] = data['label']
-                        if 'font_size' in data:
-                            item['font_size'] = int(data['font_size'])
-                        if 'font_family' in data:
-                            item['font_family'] = data['font_family']
-                        if 'font_weight' in data:
-                            item['font_weight'] = data['font_weight']
-                        if 'color' in data:
-                            item['color'] = data['color']
-                        if 'text_align' in data:
-                            item['text_align'] = data['text_align']
-                        if 'writing_mode' in data:
-                            item['writing_mode'] = data['writing_mode']
-                        
-                        found = True
-                        break
-                
-                if not found:
-                    return JsonResponse({
-                        'status': 'error',
-                        'message': f'Text element "{element_key}" not found'
-                    }, status=404)
-                
-                default_positions['text_layout'] = text_layout
-            
-            elif element_type == 'image':
-                # image_layout リストを取得または初期化
-                image_layout = default_positions.get('image_layout', [])
-                if isinstance(image_layout, str):
-                    image_layout = json.loads(image_layout)
-                
-                # element_key に対応するアイテムを更新
-                found = False
-                for item in image_layout:
-                    if item.get('key') == element_key:
-                        # mm 値を丸めて保存（source of truth）
-                        item['x'] = CoordinateConverter.round_mm(x_mm, 2)
-                        item['y'] = CoordinateConverter.round_mm(y_mm, 2)
-                        item['w'] = CoordinateConverter.round_mm(w_mm, 2)
-                        item['h'] = CoordinateConverter.round_mm(h_mm, 2)
-                        
-                        # Update label if provided
-                        if 'label' in data:
-                            item['label'] = data['label']
-                        
-                        found = True
-                        break
-                
-                if not found:
-                    return JsonResponse({
-                        'status': 'error',
-                        'message': f'Image element "{element_key}" not found'
-                    }, status=404)
-                
-                default_positions['image_layout'] = image_layout
-            
-            # テンプレートを保存
+            # 既存の正準ポジション（旧スキーマはここで正準形へ畳み込む）
+            existing_positions = layout_schema.canonicalize(template.default_positions)
+            if element_key not in existing_positions:
+                return JsonResponse({
+                    'status': 'error',
+                    'message': f'{element_type.capitalize()} element "{element_key}" not found'
+                }, status=404)
+
+            # エディタは mm、正準スキーマは pt。変換は境界のみ。
+            row = {
+                'key': element_key,
+                'x': x_mm,
+                'y': y_mm,
+                'w': w_mm,
+                'h': h_mm,
+            }
+            for field_name in (
+                'label', 'font_size', 'font_family', 'font_weight',
+                'color', 'text_align', 'writing_mode',
+            ):
+                if field_name in data:
+                    row[field_name] = data[field_name]
+
+            try:
+                if element_type == 'text':
+                    default_positions = layout_schema.merge_rows_into_positions(
+                        existing_positions, [row], []
+                    )
+                else:
+                    default_positions = layout_schema.merge_rows_into_positions(
+                        existing_positions, [], [row]
+                    )
+            except ValueError as exc:
+                return JsonResponse({
+                    'status': 'error',
+                    'message': f'Invalid data: {exc}'
+                }, status=400)
+
+            # テンプレートを保存（正準形のみ）
             template.default_positions = default_positions
             template.save(update_fields=['default_positions', 'updated_at'])
             
