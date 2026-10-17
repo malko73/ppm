@@ -5,7 +5,8 @@
 Complete procedure to recover PPM (Portable PDF Manager) on a new VPS from backup artifacts.
 
 **Target RTO**: 4 hours from new VPS provisioning to PDF output confirmation  
-**Target RPO**: 24 hours (daily backups at 02:00)
+**RPO as implemented (2026-10-17)**: DB **6 hours** (`0 */6 * * *`, 00/06/12/18 JST) · `media/` **24 hours**
+(`30 6 * * *`, change-detected — no write when the manifest is unchanged). No PITR.
 
 **Prerequisites**:
 - New Ubuntu/Debian VPS (22.04 LTS or later)
@@ -106,15 +107,29 @@ Complete procedure to recover PPM (Portable PDF Manager) on a new VPS from backu
 >
 > ### What is NOT covered (known gaps)
 >
-> 1. **No PITR.** RPO is 24 h for the DB and 7 days for `media/`, and only if the 06:00 run succeeded.
-> 2. **Private-key escrow is not yet verified off-device.** Losing the Mac's `~/.gnupg-ppm` makes
->    every artifact — local and on Drive — permanently unreadable.
-> 3. The GPG passphrase file lives on the same host as the private key.
-> 4. **The Mac is a single point of failure for the upload** (sleep/offline ⇒ no off-site copy that day;
->    the VPS keeps 14 days of DB artifacts so short gaps are recoverable).
-> 5. Drive is the same account used by `hermes-backup`, so a Drive-side incident affects both.
-> 6. **No import-into-scratch-DB drill on the VPS.** Decryption, integrity and content parity are
->    proven; a full `mysql <dump>` restore onto a throwaway database has not been executed.
+> 1. **No PITR.** `log_bin=OFF` (verified 2026-10-17, MariaDB 10.5.29, zero binlog files), so RPO is
+>    bounded by the schedule: 6 h for the DB, 24 h for `media/`, and only if the run succeeded.
+>    Enabling binlog means a config change, a restart, a retention policy and a restore drill — it is
+>    deliberately deferred (see `BACKUP_DR_HARDENING_PLAN.md`).
+> 2. **The 1Password copy of the passphrase has not been proven to decrypt an artifact.** On
+>    2026-10-17 a value taken from the vault was 10 bytes and failed (`gpg: decryption failed`,
+>    exit 2) while the Mac file decrypted the same artifact fine. Either the copy was wrong or the
+>    item holds a different value — **until an artifact is decrypted with the vault copy, the
+>    off-device escrow is a claim, not a fact.** The decisive test is one command (see below).
+> 3. The Mac remains a single point of failure for the **upload** (the VPS keeps 14 days locally, so
+>    short gaps are recoverable) and holds the only live copy of the private key.
+> 4. Drive is the same account used by `hermes-backup`, so a Drive-side incident affects both.
+> 5. `media/` restore is verified as decrypt → tar → per-file md5 parity, but it has not been
+>    followed by an application-level check (image served through Django).
+>
+> **Closed on 2026-10-17** (previously listed here):
+> * *Private-key escrow unverified* → the key was pulled back **from Drive** into a fresh `GNUPGHOME`
+>   and decrypted a DB artifact (SQL sha256 `475f6d39…93a8eb27`).
+> * *No import-into-scratch-DB drill* → executed: Drive artifact → decrypt → `mysql ppm_restore_drill`
+>   → 16 tables, 14/16 row counts identical, the 2 diffs explained by the dump timestamp; scratch DB
+>   dropped afterwards. Evidence in `BACKUP_DR_HARDENING_PLAN.md` §9.
+> * *16 plaintext DB generations on the VPS* → encrypted (16/16), decrypt-verified against the
+>   recorded sha256 (16/16), uploaded to `gdrive:ppm-backup/db/legacy/`, plaintext deleted.
 >
 > ### Key escrow (2026-10-17, drill-proven)
 >
@@ -123,7 +138,24 @@ Complete procedure to recover PPM (Portable PDF Manager) on a new VPS from backu
 > | Secret key (armored, passphrase-protected) | `gdrive:ppm-backup/keys/ppm-backup-secret.asc` — 951 B, sha256 `b6e2ddb4d6bfaf1efbe972e375bb7e19180e9799eed61692aa91be1612c8472e` |
 > | Key fingerprint | `2894659F30D57F5A59F7D24E18073F5C40179CA3` (`ppm-backup@y-asahi.local`, expires 2028-10-16) |
 > | Live secret key | Mac `~/.gnupg-ppm` (`0700`) |
-> | Passphrase | **1Password item `PPM backup GPG passphrase` in vault `Personal` — created and checked by the owner 2026-10-17 20:51 JST.** No digest, length or prefix of the value is recorded here: it buys nothing over decrypting, and it publishes a verifier for a secret. The acceptance test is that the stored passphrase **decrypts the newest artifact** (procedure below). The item is passphrase-only; the key itself is the Drive object above. |
+> | Passphrase | 1Password item `PPM backup GPG passphrase` (vault `Personal`) — **UNVERIFIED: the vault copy has not yet decrypted an artifact.** The working copy is the Mac file `~/.ppm-backup-passphrase`. No digest, length or prefix of the value is recorded here. |
+>
+> **Decisive test for the vault copy** (this, not a digest comparison, is what "escrowed" means):
+>
+> ```bash
+> eval $(op signin)
+> op item get "PPM backup GPG passphrase" --fields label=password > /tmp/op.pw && chmod 600 /tmp/op.pw
+> export GNUPGHOME="$HOME/.gnupg-ppm"
+> rclone copyto gdrive:ppm-backup/db/ppm_20261017_214508.sql.gz.gpg /tmp/t.gpg
+> gpg --batch --pinentry-mode loopback --passphrase-file /tmp/op.pw --decrypt /tmp/t.gpg | gzip -t \
+>   && echo "VAULT PASSPHRASE OK" || echo "VAULT PASSPHRASE WRONG"
+> rm -f /tmp/op.pw /tmp/t.gpg
+> ```
+>
+> Run 2026-10-17 21:5x: the pasted value was 10 bytes and returned `gpg: decryption failed: No secret key`
+> (exit 2) — i.e. wrong passphrase, not a missing key. The same artifact decrypted fine with
+> `~/.ppm-backup-passphrase`. Treat the escrow as open until the command above prints
+> **VAULT PASSPHRASE OK**.
 >
 > The exported key carries `iter+salt S2K, algo 7 (AES-256), skey: [v4 protected]`, so the Drive copy
 > alone is useless without the passphrase — the two halves now live in **different providers**
