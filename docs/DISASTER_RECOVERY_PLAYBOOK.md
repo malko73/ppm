@@ -115,6 +115,35 @@ Complete procedure to recover PPM (Portable PDF Manager) on a new VPS from backu
 > 5. Drive is the same account used by `hermes-backup`, so a Drive-side incident affects both.
 > 6. **No import-into-scratch-DB drill on the VPS.** Decryption, integrity and content parity are
 >    proven; a full `mysql <dump>` restore onto a throwaway database has not been executed.
+>
+> ### Key escrow (2026-10-17, drill-proven)
+>
+> | Piece | Where |
+> |---|---|
+> | Secret key (armored, passphrase-protected) | `gdrive:ppm-backup/keys/ppm-backup-secret.asc` — 951 B, sha256 `b6e2ddb4d6bfaf1efbe972e375bb7e19180e9799eed61692aa91be1612c8472e` |
+> | Key fingerprint | `2894659F30D57F5A59F7D24E18073F5C40179CA3` (`ppm-backup@y-asahi.local`, expires 2028-10-16) |
+> | Live secret key | Mac `~/.gnupg-ppm` (`0700`) |
+> | Passphrase | **PENDING — not yet off-device.** Currently only `~/.ppm-backup-passphrase` (`0600`) on the Mac |
+>
+> The exported key carries `iter+salt S2K, algo 7 (AES-256), skey: [v4 protected]`, so the Drive copy
+> alone is useless without the passphrase. **Until the passphrase is stored off-device the escrow is
+> incomplete**: losing the Mac still loses the ability to decrypt every artifact.
+>
+> Restore drill that was actually run (fresh `GNUPGHOME`, key pulled back **from Drive**):
+>
+> ```bash
+> CHECK=$(mktemp -d); chmod 700 "$CHECK"
+> rclone copyto gdrive:ppm-backup/keys/ppm-backup-secret.asc "$CHECK/k.asc"
+> GNUPGHOME="$CHECK" gpg --batch --import "$CHECK/k.asc"
+> # no passphrase -> must fail (exit 2, "パスフレーズが与えられていません")
+> GNUPGHOME="$CHECK" gpg --batch --pinentry-mode loopback --passphrase '' --decrypt artifact.gpg > /dev/null
+> # real passphrase -> succeeds, plaintext sha256 475f6d39…93a8eb27, trailer "-- Dump completed on 2026-10-17 15:13:38"
+> GNUPGHOME="$CHECK" gpg --batch --pinentry-mode loopback --passphrase-file PASSPHRASE --decrypt artifact.gpg > out.sql.gz
+> ```
+>
+> Transfer integrity: Drive md5 `668b89611358fd16eed0f1209d54bd38` == local md5. Only the encrypted,
+> passphrase-protected export is stored; no unprotected copy of the secret key exists off the Mac.
+
 
 >
 > `gpg --list-packets <artifact>` exits **2** on the VPS ("public key decryption failed: No secret
