@@ -15,6 +15,73 @@ Complete procedure to recover PPM (Portable PDF Manager) on a new VPS from backu
 
 ---
 
+> ## ⚠️ READ FIRST — IMPLEMENTED REALITY (verified 2026-10-17)
+>
+> **Phases 1–5 below describe a TARGET architecture (S3/GCS + KMS/Vault + `/var/lib/ppm` + media
+> tarballs + `*.sha256` sidecars + 02:00 schedule) that is NOT implemented.** Following them today
+> will fail. The verified, actually-running procedure is this section.
+>
+> ### What exists
+>
+> | Item | Reality |
+> |---|---|
+> | Schedule | `/etc/cron.d/ppm-backup` → `0 6 * * * root /usr/local/bin/backup-ppm.sh` (06:00 JST daily) |
+> | Script | `/usr/local/bin/backup-ppm.sh` (0700 root). Previous version: `backup-ppm.sh.pre-gpg-20261017` |
+> | Artifacts | `/var/backups/ppm/` (dir `0700 root`), `ppm_YYYYmmdd_HHMMSS.sql.gz.gpg` (files `0600 root`) |
+> | Latest pointer | `/var/backups/ppm/ppm_latest.sql.gz.gpg` → newest artifact |
+> | Encryption | GPG public-key only on the host: recipient `2894659F30D57F5A59F7D24E18073F5C40179CA3` (`ppm-backup@y-asahi.local`, expires 2028-10-16), pubkey ring `/root/.gnupg-ppm` (`0700`) |
+> | Private key | **Never on the VPS.** Mac `~/.gnupg-ppm` (`0700`), passphrase `~/.ppm-backup-passphrase` (`0600`) |
+> | Retention | 14 days (`-mtime +14`), only `*.sql.gz.gpg` |
+> | Log | `/var/log/ppm-backup.log` (`0600 root`) — `OK:` / `FAILED:` lines with timestamps |
+> | Database | MariaDB `appsdb`; root uses **unix_socket** auth, so the `.env` password is not what authenticated the dump |
+> | Legacy plaintext | 16 pre-2026-10-17 dumps moved to `/var/backups/ppm-legacy-plaintext-20261017/` (`0700 root`, files `0600`). Hashes: `/root/ppm-legacy-plaintext-sha256-20261017.txt`. **Not deleted** — decision pending. |
+>
+> Script guarantees: `set -euo pipefail`; dump verified with `gzip -t` and the
+> `-- Dump completed` trailer before encryption; plaintext temp is `0600` in the backup dir and
+> removed by `trap` on every exit path; encrypted output validated as an OpenPGP
+> `:pubkey enc packet` addressed to the expected recipient; **any failure exits non-zero and logs
+> `FAILED:`** (verified by injecting a bogus database name).
+>
+> ### Restore procedure (verified drill, 2026-10-17)
+>
+> ```bash
+> # 1. Fetch the newest artifact (root-only file → stream it)
+> ssh sakura-vps 'sudo cat /var/backups/ppm/ppm_latest.sql.gz.gpg' > ppm.sql.gz.gpg
+> ssh sakura-vps 'sudo sha256sum /var/backups/ppm/ppm_latest.sql.gz.gpg'   # compare both sides
+>
+> # 2. Decrypt on a machine that holds the private key
+> export GNUPGHOME="$HOME/.gnupg-ppm"
+> gpg --batch --pinentry-mode loopback --passphrase-file "$HOME/.ppm-backup-passphrase" \
+>     --decrypt ppm.sql.gz.gpg > ppm.sql.gz
+>
+> # 3. Verify BEFORE importing (never import an unverified dump)
+> gzip -t ppm.sql.gz
+> gzip -dc ppm.sql.gz | tail -1        # must be: -- Dump completed on <timestamp>
+> gzip -dc ppm.sql.gz | grep -c '^CREATE TABLE'
+>
+> # 4. Import
+> gzip -dc ppm.sql.gz | mysql -u root appsdb
+> ```
+>
+> Measurement of the 2026-10-17 drill: encrypted 62,427 B → plaintext 62,224 B → 308,700 B SQL,
+> 16 `CREATE TABLE`, 16 `INSERT INTO`, trailer `-- Dump completed on 2026-10-17 15:13:38`,
+> `projects_project` / `projects_page` / `accounts_customuser` / `projects_projecttemplate` present,
+> SHA-256 identical on both sides.
+>
+> ### What is NOT covered (known gaps)
+>
+> 1. **No off-site copy.** Artifacts live on the same VPS disk as the database. VPS loss = all backups lost.
+> 2. **No media/ backup.** Uploaded PDFs under `media/` are not in any backup.
+> 3. **No PITR.** RPO is 24 h, and only if the 06:00 run succeeded.
+> 4. **Private-key escrow is not yet verified off-device.** Losing the Mac's `~/.gnupg-ppm` makes
+>    every existing artifact permanently unreadable.
+> 5. GPG private key is passphrase-protected, but the passphrase file sits on the same host as the key.
+>
+> `gpg --list-packets <artifact>` exits **2** on the VPS ("public key decryption failed: No secret
+> key") while still printing the packets — that is expected, not a corrupt file.
+
+---
+
 ## Phase 0: Environment Setup (Est. 5 minutes)
 
 ### 0.1 Export Required Variables
