@@ -123,32 +123,31 @@ Complete procedure to recover PPM (Portable PDF Manager) on a new VPS from backu
 > | Secret key (armored, passphrase-protected) | `gdrive:ppm-backup/keys/ppm-backup-secret.asc` — 951 B, sha256 `b6e2ddb4d6bfaf1efbe972e375bb7e19180e9799eed61692aa91be1612c8472e` |
 > | Key fingerprint | `2894659F30D57F5A59F7D24E18073F5C40179CA3` (`ppm-backup@y-asahi.local`, expires 2028-10-16) |
 > | Live secret key | Mac `~/.gnupg-ppm` (`0700`) |
-> | Passphrase | **ESCROW INCOMPLETE as of 2026-10-17 20:01.** `op item get "PPM backup GPG passphrase"` returns *"isn't an item"* on the signed-in account, so no such item is visible there. The value still exists only as `~/.ppm-backup-passphrase` (`0600`, 48 chars, sha256 `c3d07a44…388cee`) on the Mac. |
+> | Passphrase | **1Password item `PPM backup GPG passphrase` in vault `Personal` — VERIFIED 2026-10-17 20:51 JST.** The owner ran `op item get "PPM backup GPG passphrase" --fields label=password \| tr -d '\n' \| shasum -a 256` and got `c3d07a44…388cee`, matching the authoritative local file (`~/.ppm-backup-passphrase`, 48 chars). The item is passphrase-only (no field for the key); the key itself is the Drive object below. |
 >
 > The exported key carries `iter+salt S2K, algo 7 (AES-256), skey: [v4 protected]`, so the Drive copy
-> alone is useless without the passphrase. **Because the passphrase is still single-host, losing the
-> Mac still loses every artifact** — the escrow only counts once an off-device copy is confirmed.
+> alone is useless without the passphrase — the two halves now live in **different providers**
+> (Google Drive vs 1Password), so compromising either alone does not open the backups.
 >
-> **Integrity cross-check for the passphrase** (safe to publish — the value is 288 random
-> bits, so the digest is not invertible):
+> **Integrity cross-check** (safe to publish — the value is 288 random bits, so the digest is not
+> invertible):
 >
 > ```bash
 > shasum -a 256 < ~/.ppm-backup-passphrase
-> # c3d07a442001077dc74ae4ef5a44e16961023247ecdc2b0dde998ad260388cee  (48 chars, no newline)
-> ```
->
-> To close the escrow: create the item (a ready-to-import template can be generated from the local
-> file, so the value never has to be typed or pasted into a chat), then confirm with
->
-> ```bash
 > op item get "PPM backup GPG passphrase" --fields label=password | tr -d '\n' | shasum -a 256
-> # must equal the digest above; anything else means the item holds a different value
+> # both must print: c3d07a442001077dc74ae4ef5a44e16961023247ecdc2b0dde998ad260388cee
 > ```
 >
-> Two failed verification attempts are recorded so nobody repeats them:
-> `e3b0c442…b855` is the sha256 of **empty input** (the CLI errored and emitted nothing), and
-> `6e0f0047…` was a digest of 642 bytes of **terminal prompt text** that was in the clipboard —
-> neither attempt ever hashed the passphrase, so neither says anything about the stored value.
+> History of this escrow, so the failure modes are not repeated:
+> * `op item get` initially failed — the item did not exist yet, and the vault is named `Personal`
+>   (`pl256xnxcsotwiugoo2rolget4`), not `Private`.
+> * `e3b0c442…b855` is the sha256 of **empty input** (the CLI errored and emitted nothing).
+> * `6e0f0047…` was a digest of 642 bytes of **terminal prompt text** that happened to be in the
+>   clipboard — not the passphrase.
+> * `op` sessions expire after ~30 minutes; a `create` can fail with "not currently signed in" and
+>   must be retried after `eval $(op signin)`.
+> * Create without exposing the value by generating a template file (0600) from the local
+>   passphrase and running `op item create --template … --vault "Personal"`, then deleting it.
 >
 > Restore drill that was actually run (fresh `GNUPGHOME`, key pulled back **from Drive**):
 >
