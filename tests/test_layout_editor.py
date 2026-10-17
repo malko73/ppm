@@ -126,7 +126,10 @@ class LayoutEditorViewTest(TestCase):
         )
         
         self.client = Client(enforce_csrf_checks=False)
-        self.client.login(username='testuser', password='testpass123')
+        self.assertTrue(
+            self.client.login(email='test@example.com', password='testpass123'),
+            'client.login failed: CustomUser.USERNAME_FIELD is email, not username',
+        )
     
     def test_layout_editor_get(self):
         """GET: レイアウトエディタページが正常に表示される"""
@@ -271,7 +274,10 @@ class LayoutEditorViewTest(TestCase):
             password='otherpass123'
         )
         
-        self.client.login(username='otheruser', password='otherpass123')
+        self.assertTrue(
+            self.client.login(email='other@example.com', password='otherpass123'),
+            'client.login failed: CustomUser.USERNAME_FIELD is email, not username',
+        )
         url = reverse('layout_editor', kwargs={'project_id': self.project.pk})
         
         response = self.client.get(url)
@@ -314,7 +320,10 @@ class LayoutEditorIntegrationTest(TestCase):
         )
         
         self.client = Client(enforce_csrf_checks=False)
-        self.client.login(username='testuser', password='testpass123')
+        self.assertTrue(
+            self.client.login(email='test@example.com', password='testpass123'),
+            'client.login failed: CustomUser.USERNAME_FIELD is email, not username',
+        )
     
     def test_coordinate_roundtrip(self):
         """Coordinate roundtrip: px → mm → storage → PDF"""
